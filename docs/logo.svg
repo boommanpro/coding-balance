@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Coding Balance">
+  <title>Coding Balance</title>
+  <circle cx="32" cy="32" r="21" fill="none" stroke="#D8E1EE" stroke-width="9"/>
+  <path d="M32 11 A21 21 0 1 1 12.03 38.49" fill="none" stroke="#2F7CF6" stroke-width="9" stroke-linecap="round"/>
+</svg>

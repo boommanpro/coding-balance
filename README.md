@@ -1,6 +1,10 @@
 # Coding Balance
 
 <p align="center">
+  <img src="docs/logo.png" width="88" height="88" alt="Coding Balance logo">
+</p>
+
+<p align="center">
   <strong>火山方舟 Coding Plan 剩余额度 · macOS 菜单栏实时监控</strong>
 </p>
 
