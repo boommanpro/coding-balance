@@ -1,0 +1,28 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 构建并发布 Release
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 构建打包
+        run: |
+          cd macos
+          ./make_app.sh
+          zip -r -y CodingBalance-macOS-${{ github.ref_name }}.zip CodingBalance.app
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: macos/CodingBalance-macOS-${{ github.ref_name }}.zip
+          generate_release_notes: true

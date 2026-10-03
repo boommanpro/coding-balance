@@ -1,0 +1,35 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    name: macOS 构建
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Swift 版本
+        run: swift --version
+
+      - name: 编译 Release
+        run: |
+          cd macos
+          swift build -c release
+
+      - name: 打包 .app
+        run: |
+          cd macos
+          ./make_app.sh
+          zip -r -y CodingBalance-macOS.zip CodingBalance.app
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodingBalance-macOS
+          path: macos/CodingBalance-macOS.zip

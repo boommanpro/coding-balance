@@ -1,0 +1,14 @@
+# macOS build artifacts
+macos/.build/
+macos/CodingBalance.app/
+macos/*.log
+*.zip
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Local credentials & config
+config.ini
+.env

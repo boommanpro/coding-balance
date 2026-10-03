@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Coding Balance · 火山方舟 Coding Plan 额度监控（macOS）</title>
+<meta name="description" content="Coding Balance —— macOS 菜单栏应用，实时监控火山方舟 Coding Plan 剩余额度：5小时/周/月窗口、多账户切换、右键菜单。">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="container topbar-inner">
+    <a class="brand" href="#">
+      <span class="brand-dot">⭕</span> Coding Balance
+    </a>
+    <nav class="nav">
+      <a href="#features">功能</a>
+      <a href="#screenshots">截图</a>
+      <a href="#download">下载</a>
+      <a href="#usage">使用</a>
+      <a href="#changelog">更新历史</a>
+      <a class="btn btn-ghost" href="https://github.com/boommanpro/coding-balance" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="container">
+    <p class="hero-eyebrow">macOS 菜单栏应用 · 开源免费</p>
+    <h1>火山方舟 Coding Plan<br>额度，一眼掌握</h1>
+    <p class="hero-sub">菜单栏圆形指示环实时显示近 5 小时剩余额度，点击查看周/月明细与重置时间，多账户自由切换。数据与方舟控制台 1:1。</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="https://github.com/boommanpro/coding-balance/releases" target="_blank" rel="noopener">
+        ⬇ 下载最新版
+      </a>
+      <a class="btn btn-ghost" href="#usage">查看使用说明</a>
+    </div>
+    <p class="hero-meta">macOS 13+ · Apple Silicon / Intel · 无需 Xcode 即可安装</p>
+    <div class="hero-shot">
+      <img src="screenshots/menubar.png" alt="菜单栏状态项：圆形5小时剩余指示环">
+      <span class="shot-caption">菜单栏：⭕ 圆形 5h 剩余指示 + 百分比（绿/橙/红三级告警）</span>
+    </div>
+  </div>
+</section>
+
+<section class="features" id="features">
+  <div class="container">
+    <h2 class="section-title">功能特性</h2>
+    <div class="grid">
+      <div class="card">
+        <div class="card-icon">⭕</div>
+        <h3>圆形剩余指示</h3>
+        <p>菜单栏以进度环直观展示近 5 小时剩余额度，颜色随余量变化：绿 ≥50%、橙 20–50%、红 &lt;20%。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🗂</div>
+        <h3>周 / 月额度明细</h3>
+        <p>点击弹出详情：5h 大圆环主视觉 + 周/月统计，三个窗口的已用/剩余进度条与下次重置时间。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">👥</div>
+        <h3>多账户切换</h3>
+        <p>支持多个账户同时配置，顶部选择器或账户列表一键切换当前使用账户，切换即刷新并记住选择。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🖱</div>
+        <h3>左键详情 · 右键菜单</h3>
+        <p>左键打开详情面板，右键呼出「刷新 / 管理账户 / 退出」快捷菜单，符合 macOS 使用习惯。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🔒</div>
+        <h3>隐私安全</h3>
+        <p>AK/SK 仅保存在本机，直接请求火山引擎官方管控面 API，不上传任何第三方服务器。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">♻️</div>
+        <h3>自动刷新</h3>
+        <p>每 60 秒自动同步额度，接近用尽时进度条与指示环自动变红提醒。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="shots" id="screenshots">
+  <div class="container">
+    <h2 class="section-title">界面预览</h2>
+    <div class="shot-grid">
+      <figure>
+        <img src="screenshots/popover.png" alt="详情弹窗：5小时剩余大圆环、周/月统计、额度明细">
+        <figcaption>详情弹窗：5h 大圆环主视觉 + 额度明细</figcaption>
+      </figure>
+      <figure>
+        <img src="screenshots/settings.png" alt="管理账户窗口：添加/编辑 AK/SK 与测试连接">
+        <figcaption>管理账户：配置 AK/SK、测试连接、增删账户</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="download" id="download">
+  <div class="container narrow">
+    <h2 class="section-title">下载安装</h2>
+    <div class="steps">
+      <div class="step">
+        <span class="step-num">1</span>
+        <div>
+          <h3>下载应用</h3>
+          <p>前往 <a href="https://github.com/boommanpro/coding-balance/releases" target="_blank" rel="noopener">GitHub Releases</a> 下载最新的 <code>CodingBalance-macOS-*.zip</code>，解压后把 <code>CodingBalance.app</code> 拖入「应用程序」。</p>
+        </div>
+      </div>
+      <div class="step">
+        <span class="step-num">2</span>
+        <div>
+          <h3>首次打开</h3>
+          <p>应用为开发者自签名，首次打开需在「系统设置 → 隐私与安全性」中允许，或右键应用 → 打开。之后菜单栏右上角出现齿轮图标 ⚙。</p>
+        </div>
+      </div>
+      <div class="step">
+        <span class="step-num">3</span>
+        <div>
+          <h3>配置账户</h3>
+          <p>点击齿轮 → 添加账户 → 填入火山引擎 <strong>Access Key ID / Secret Access Key</strong> → 「测试连接」通过后保存，菜单栏即刻显示额度。</p>
+        </div>
+      </div>
+    </div>
+    <div class="note">
+      💡 想从源码构建？<code>git clone</code> 后执行 <code>cd macos &amp;&amp; ./make_app.sh</code>（需 Swift 工具链，macOS 自带或 Xcode 提供）。
+    </div>
+  </div>
+</section>
+
+<section class="usage" id="usage">
+  <div class="container">
+    <h2 class="section-title">使用说明</h2>
+    <div class="usage-grid">
+      <div class="usage-card">
+        <h3>🔑 获取 AK/SK</h3>
+        <ol>
+          <li>打开<a href="https://console.volcengine.com/iam/keymanage" target="_blank" rel="noopener">火山引擎 · API 访问密钥管理</a>，登录火山引擎账号。</li>
+          <li>点击「新建密钥」，生成 <code>Access Key ID</code> 与 <code>Secret Access Key</code>（Secret 仅显示一次，请立即保存）。</li>
+          <li>建议使用 IAM 子账号并授予 <code>ark:GetCodingPlanUsage</code> 等方舟权限；主账号密钥亦可用。</li>
+        </ol>
+      </div>
+      <div class="usage-card">
+        <h3>🖱 交互方式</h3>
+        <ul>
+          <li><strong>左键</strong>：打开详情弹窗（5h/周/月额度 + 重置时间）</li>
+          <li><strong>右键</strong>：刷新 / 管理账户 / 退出</li>
+          <li><strong>多账户</strong>：弹窗内切换「当前使用账户」，状态栏随当前账户联动</li>
+          <li><strong>悬停</strong>：显示账户名与 5h 剩余百分比</li>
+        </ul>
+      </div>
+      <div class="usage-card">
+        <h3>❓ 常见问题</h3>
+        <ul>
+          <li><strong>显示 0 或错误？</strong> 检查 IAM 是否有 <code>ark:GetCodingPlanUsage</code> 权限。</li>
+          <li><strong>数据来源？</strong> 官方管控面 API（<code>GetCodingPlanUsage</code> / <code>GetAFPUsage</code>），与控制台 1:1。</li>
+          <li><strong>支持哪些套餐？</strong> Coding Plan 个人版（百分比）与 Agent Plan 个人版（AFP 绝对值）。</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="changelog" id="changelog">
+  <div class="container narrow">
+    <h2 class="section-title">版本更新历史</h2>
+    <div class="release">
+      <div class="release-head">
+        <span class="release-tag">v1.0.0</span>
+        <span class="release-date">2026-10-03</span>
+      </div>
+      <ul>
+        <li>菜单栏圆形「近 5 小时剩余」指示环 + 百分比，三级颜色告警</li>
+        <li>左键详情弹窗：5h 大圆环、周/月统计、额度明细与重置时间</li>
+        <li>右键快捷菜单：刷新 / 管理账户 / 退出</li>
+        <li>多账户支持：切换当前使用账户，即时刷新并持久化</li>
+        <li>支持 Coding Plan（百分比）与 Agent Plan（AFP）</li>
+        <li>原生 AppKit NSStatusItem 实现，稳定刷新；GitHub Actions 自动构建与发布</li>
+      </ul>
+      <p class="release-more">完整记录见 <a href="https://github.com/boommanpro/coding-balance/blob/main/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG.md</a> 与 <a href="https://github.com/boommanpro/coding-balance/releases" target="_blank" rel="noopener">GitHub Releases</a>。</p>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="container">
+    <p>Coding Balance · 开源（Apache-2.0）· <a href="https://github.com/boommanpro/coding-balance" target="_blank" rel="noopener">GitHub 仓库</a></p>
+    <p class="footer-note">与火山引擎官方无关联；数据由官方接口实时返回，仅供参考。</p>
+  </div>
+</footer>
+
+</body>
+</html>
