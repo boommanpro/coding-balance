@@ -34,6 +34,7 @@
 - **左键详情弹窗**：5h 大圆环主视觉 + 周/月统计 + 三个额度窗口明细（已用/剩余进度条、下次重置时间）
 - **右键快捷菜单**：刷新 / 管理账户 / 退出
 - **多账户**：切换「当前使用账户」即刷新并持久化，账户总览一键切换
+- **模型速查**：弹窗「模型」页展示套餐可用模型及 QPS（≈RPM/60）、RPM/TPM 限流与单价
 - **自动刷新**：每 60 秒同步；支持 Coding Plan（百分比额度）与 Agent Plan（AFP 绝对值）
 - **隐私安全**：AK/SK 仅存本机，直接请求官方 API，不上传第三方
 
@@ -67,6 +68,8 @@ python3 coding_balance.py quota           # 查看剩余额度
 python3 coding_balance.py quota --watch 10  # 每 10 秒刷新
 python3 coding_balance.py models --coding-plan
 python3 coding_balance.py pricing --coding-plan
+python3 coding_balance.py ratelimit            # 查看模型限流（RPM/TPM，QPS≈RPM/60）
+python3 coding_balance.py ratelimit --search doubao
 python3 coding_balance.py selftest        # 校验签名实现
 ```
 

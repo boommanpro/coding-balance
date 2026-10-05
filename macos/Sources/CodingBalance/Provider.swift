@@ -26,6 +26,8 @@ protocol Provider {
     func fetchBalance(account: Account) async throws -> BalanceSnapshot
     /// 校验凭据是否可用
     func validate(account: Account) async throws
+    /// 拉取可用模型及限流（RPM/TPM，QPS≈RPM/60）与价格
+    func fetchModels(account: Account) async throws -> [ModelInfo]
 }
 
 func makeProvider(_ kind: ProviderKind) -> Provider {

@@ -11,6 +11,9 @@ final class AppState: NSObject, ObservableObject {
     @Published var accounts: [Account] = []
     @Published var balances: [UUID: BalanceSnapshot] = [:]
     @Published var errors: [UUID: String] = [:]
+    /// 模型限流信息（QPS≈RPM/60）与价格缓存
+    @Published var modelInfos: [UUID: [ModelInfo]] = [:]
+    @Published var modelErrors: [UUID: String] = [:]
     @Published var isRefreshing = false
     @Published var lastRefresh: Date?
     /// 当前使用账户（决定菜单栏展示哪个账户的额度）
@@ -264,8 +267,9 @@ final class AppState: NSObject, ObservableObject {
     }
 
     func refresh(account: Account) async {
+        let provider = makeProvider(account.provider)
         do {
-            let snapshot = try await makeProvider(account.provider).fetchBalance(account: account)
+            let snapshot = try await provider.fetchBalance(account: account)
             balances[account.id] = snapshot
             errors[account.id] = nil
             log("刷新成功 \(account.shortLabel): plan=\(snapshot.plan.rawValue) "
@@ -275,6 +279,25 @@ final class AppState: NSObject, ObservableObject {
             balances[account.id] = nil
             errors[account.id] = (error as? ProviderError)?.errorDescription ?? error.localizedDescription
             log("刷新失败 \(account.shortLabel): \(errors[account.id] ?? error.localizedDescription)")
+        }
+        await refreshModels(account: account, provider: provider)
+    }
+
+    /// 拉取可用模型 + 限流（QPS）+ 价格（与余额刷新一起，60s 一次）
+    func refreshModels(account: Account, provider: Provider? = nil) async {
+        let provider = provider ?? makeProvider(account.provider)
+        do {
+            let models = try await provider.fetchModels(account: account)
+            modelInfos[account.id] = models
+            modelErrors[account.id] = nil
+            let sample = models.prefix(3).map {
+                "\($0.name)(QPS≈\(formatCompact($0.qps ?? 0)), RPM=\(formatCompact($0.rpm ?? 0)), 价格=\($0.price ?? "-"))"
+            }.joined(separator: ", ")
+            log("模型刷新成功 \(account.shortLabel): \(models.count) 个 · \(sample)")
+        } catch {
+            modelInfos[account.id] = []
+            modelErrors[account.id] = (error as? ProviderError)?.errorDescription ?? error.localizedDescription
+            log("模型刷新失败 \(account.shortLabel): \(modelErrors[account.id] ?? error.localizedDescription)")
         }
     }
 
@@ -300,6 +323,8 @@ final class AppState: NSObject, ObservableObject {
         accounts.removeAll { $0.id == account.id }
         balances[account.id] = nil
         errors[account.id] = nil
+        modelInfos[account.id] = nil
+        modelErrors[account.id] = nil
         if activeAccountID == account.id {
             activeAccountID = accounts.first?.id
             UserDefaults.standard.set(activeAccountID?.uuidString ?? "", forKey: activeKey)
@@ -311,6 +336,8 @@ final class AppState: NSObject, ObservableObject {
         accounts.removeAll()
         balances.removeAll()
         errors.removeAll()
+        modelInfos.removeAll()
+        modelErrors.removeAll()
         activeAccountID = nil
         UserDefaults.standard.removeObject(forKey: activeKey)
         AccountStore.shared.save(accounts)

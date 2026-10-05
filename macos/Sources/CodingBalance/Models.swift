@@ -111,6 +111,22 @@ struct BalanceSnapshot: Identifiable, Hashable {
     }
 }
 
+// MARK: - 模型限流信息（模型 + QPS/RPM/TPM + 价格）
+
+/// 单个模型的可用性、限流与价格信息。
+/// - QPS ≈ RPM / 60（火山引擎限流以 RPM=每分钟请求数 / TPM=每分钟Token数 表达）
+struct ModelInfo: Identifiable, Hashable {
+    var id: String { name }
+
+    let name: String         // 模型 ID / 基础模型名
+    let rpm: Double?         // 当前每分钟请求数上限
+    let tpm: Double?         // 当前每分钟 Token 数上限
+    let tpd: Double?         // 当前每日 Token 限额
+    let price: String?       // 价格描述（元/单位）
+
+    var qps: Double? { rpm.map { $0 / 60 } }
+}
+
 // MARK: - 通用数值转换（API 中数字可能是 number 也可能是 string）
 
 func asDouble(_ value: Any?) -> Double? {

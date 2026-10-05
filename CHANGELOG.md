@@ -2,6 +2,16 @@
 
 本项目采用 [语义化版本](https://semver.org/lang/zh-CN/)，`v*` 标签触发自动构建并发布到 GitHub Releases。
 
+## v1.1.0 (2026-10-05)
+
+**功能**
+- 新增「模型」页：弹窗内可查看 Coding Plan 套餐可用模型，以及每个模型的 QPS（≈RPM/60）、RPM/TPM 限流与单价
+- 模型数据随余额每 60 秒同步刷新，来源 `ListArkCodingPlanModel` / `ListModelRateLimit` / `ListModelActivations`
+- CLI 新增 `ratelimit` 命令：查看模型限流（RPM/TPM）与价格
+
+**技术**
+- 处理平台命名空间差异：Coding Plan 点号版本与平台连字符版本归一化匹配，支持 `-ga`（GA 稳定版）价格回退
+
 ## v1.0.0 (2026-10-03)
 
 首个正式版本。

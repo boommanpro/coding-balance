@@ -10,6 +10,8 @@
     python3 coding_balance.py models --search doubao     # 搜索模型
     python3 coding_balance.py pricing --search doubao    # 查看模型费率
     python3 coding_balance.py pricing --coding-plan      # Coding Plan 模型 AFP 抵扣系数
+    python3 coding_balance.py ratelimit                  # 查看模型限流（RPM/TPM，QPS≈RPM/60）
+    python3 coding_balance.py ratelimit --search doubao  # 搜索限流配置
     python3 coding_balance.py selftest                   # 校验本地签名实现
 
 凭据来源（按优先级）：
@@ -391,7 +393,7 @@ def cmd_models(args):
 def _charge_items_str(charge_items):
     parts = []
     for c in charge_items or []:
-        price = c.get("Price")
+        price = fmt_num(c.get("Price"))
         unit = c.get("UnitCode") or c.get("Unit") or "-"
         ctype = c.get("Type") or "-"
         parts.append(f"{ctype} {price}/{unit}")
@@ -441,6 +443,70 @@ def cmd_pricing(args):
     return 0
 
 
+def cmd_ratelimit(args):
+    """ListModelRateLimit：查询账号下各基础模型限流（RPM/TPM/TPD），QPS≈RPM/60。
+    价格来自 ListModelActivations（WithPrice=True）。"""
+    ak, sk, _ = get_credentials()
+
+    # 价格映射：FoundationModelName -> 计费项（查询失败不阻塞限流展示）
+    price_map = {}
+
+    def fetch_price(page, size):
+        r = ark_client.api_call(ak, sk, "ListModelActivations",
+                                {"PageNumber": page, "PageSize": size,
+                                 "Filter": {"IncludeDeprecatedModels": False},
+                                 "WithPrice": True, "WithFreeUsage": True})
+        return r.get("Items", []), r.get("TotalCount")
+
+    try:
+        for i in paginate(fetch_price, "TotalCount", page_size=100):
+            name = i.get("FoundationModelName") or i.get("Name")
+            if name:
+                price_map[name] = _charge_items_str(i.get("ChargeItems"))
+    except ArkError:
+        pass  # 价格缺失时显示 "-"
+
+    try:
+        r = ark_client.api_call(ak, sk, "ListModelRateLimit")
+    except ArkError as e:
+        print(f"查询失败：{e}")
+        print("提示：ListModelRateLimit 需 IAM 账号具备对应 ark 管控面读权限。")
+        return 1
+    items = r.get("Items", [])
+    if args.search:
+        q = args.search.lower()
+        items = [i for i in items if q in (i.get("FoundationModelName") or "").lower()]
+    if args.limit:
+        items = items[:args.limit]
+    if not items:
+        print("没有查询到模型限流信息。")
+        return 0
+
+    def qps(rpm):
+        try:
+            return f"{float(rpm) / 60:.1f}"
+        except (TypeError, ValueError):
+            return "-"
+
+    print(f"{'基础模型':<34} {'QPS(≈)':<7} {'当前RPM':<9} {'当前TPM':<11} "
+          f"{'默认RPM':<9} {'默认TPM':<11} {'TPD':<8} 价格（元/单位）")
+    print("-" * 148)
+    for i in items:
+        name = i.get("FoundationModelName") or "-"
+        cur = i.get("CurrentRateLimit") or {}
+        dft = i.get("DefaultRateLimit") or {}
+        rpm, tpm = cur.get("Rpm") or 0, cur.get("Tpm") or 0
+        # 平台价格可能以 "-ga"（GA 稳定版）后缀登记，精确匹配失败时回退
+        price = price_map.get(name) or price_map.get(name + "-ga", "-")
+        if len(price) > 44:
+            price = price[:44] + "…"
+        print(f"{name:<34} {qps(rpm):<7} {fmt_num(rpm):<9} {fmt_num(tpm):<11} "
+              f"{fmt_num(dft.get('Rpm') or 0):<9} {fmt_num(dft.get('Tpm') or 0):<11} "
+              f"{fmt_num(i.get('CurrentTpd') or 0):<8} {price}")
+    print(f"\n共 {len(items)} 个模型。RPM=每分钟请求数，QPS≈RPM/60；TPM=每分钟Token数；TPD=每日Token限额。")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # 入口
 # ---------------------------------------------------------------------------
@@ -472,6 +538,10 @@ def main(argv=None):
     p_price.add_argument("--search", metavar="关键词", help="按模型名过滤")
     p_price.add_argument("--limit", type=int, default=None, help="最多返回条数")
 
+    p_rate = sub.add_parser("ratelimit", help="查看模型限流（RPM/TPM，QPS≈RPM/60）")
+    p_rate.add_argument("--search", metavar="关键词", help="按基础模型名过滤")
+    p_rate.add_argument("--limit", type=int, default=None, help="最多返回条数")
+
     args = parser.parse_args(argv)
 
     handlers = {
@@ -481,6 +551,7 @@ def main(argv=None):
         "quota": cmd_quota,
         "models": cmd_models,
         "pricing": cmd_pricing,
+        "ratelimit": cmd_ratelimit,
     }
     return handlers[args.command](args)
 

@@ -3,26 +3,38 @@ import SwiftUI
 /// 菜单栏详情弹窗（左键点击菜单栏状态项弹出）
 struct MenuBarView: View {
     @EnvironmentObject var appState: AppState
+    @State private var tab: MenuTab = .balance
+
+    enum MenuTab: String, CaseIterable, Identifiable {
+        case balance = "额度"
+        case models = "模型"
+        var id: String { rawValue }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+
+            Picker("", selection: $tab) {
+                ForEach(MenuTab.allCases) { t in
+                    Text(t.rawValue).tag(t)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.top, 8)
+
             Divider().padding(.vertical, 10)
 
-            if appState.accounts.isEmpty {
-                EmptyConfigView()
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        if appState.accounts.count > 1 { accountPicker }
-                        if let active = appState.activeAccount {
-                            accountDetail(active)
-                        }
-                        if appState.accounts.count > 1 { accountOverview }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    switch tab {
+                    case .balance: balanceContent
+                    case .models: ModelsView()
                     }
-                    .padding(.horizontal, 2)
-                    .padding(.bottom, 6)
                 }
+                .padding(.horizontal, 2)
+                .padding(.bottom, 6)
             }
 
             Divider().padding(.vertical, 10)
@@ -32,6 +44,19 @@ struct MenuBarView: View {
         .frame(width: 400)
         .onAppear {
             appState.log("弹窗打开 账户=\(appState.accounts.count) 快照=\(appState.balances.count) 菜单栏=「\(appState.menuBarText)」")
+        }
+    }
+
+    @ViewBuilder
+    private var balanceContent: some View {
+        if appState.accounts.isEmpty {
+            EmptyConfigView()
+        } else {
+            if appState.accounts.count > 1 { accountPicker }
+            if let active = appState.activeAccount {
+                accountDetail(active)
+            }
+            if appState.accounts.count > 1 { accountOverview }
         }
     }
 
