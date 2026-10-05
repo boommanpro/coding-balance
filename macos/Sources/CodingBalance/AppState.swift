@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import ServiceManagement
 import SwiftUI
 
 /// 全局应用状态：多账户 + 当前使用账户 + 余额缓存 + 定时刷新
@@ -18,6 +19,8 @@ final class AppState: NSObject, ObservableObject {
     @Published var lastRefresh: Date?
     /// 当前使用账户（决定菜单栏展示哪个账户的额度）
     @Published var activeAccountID: UUID?
+    /// 是否已启用开机自启动（SMAppService.mainApp，macOS 13+）
+    @Published private(set) var launchAtLoginEnabled = false
 
     private var refreshTimer: Timer?
     private let activeKey = "codingbalance.activeAccountID"
@@ -33,6 +36,7 @@ final class AppState: NSObject, ObservableObject {
         accounts = AccountStore.shared.load()
         log("App 启动，加载账户数=\(accounts.count)")
         restoreActiveAccount()
+        refreshLaunchAtLoginStatus()
         setupStatusItem()
         startAutoRefresh()
         refreshAll()
@@ -347,6 +351,32 @@ final class AppState: NSObject, ObservableObject {
             modelInfos[account.id] = []
             modelErrors[account.id] = (error as? ProviderError)?.errorDescription ?? error.localizedDescription
             log("模型刷新失败 \(account.shortLabel): \(modelErrors[account.id] ?? error.localizedDescription)")
+        }
+    }
+
+    // MARK: 开机自启动（SMAppService.mainApp）
+
+    /// 同步当前开机自启动注册状态
+    func refreshLaunchAtLoginStatus() {
+        launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
+    }
+
+    /// 设置开机自启动，失败时返回错误描述（如应用不在「应用程序」文件夹时注册会失败）
+    @discardableResult
+    func setLaunchAtLogin(_ enabled: Bool) -> String? {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            refreshLaunchAtLoginStatus()
+            log("开机自启动\(enabled ? "开启" : "关闭") 状态=\(SMAppService.mainApp.status.rawValue)")
+            return nil
+        } catch {
+            refreshLaunchAtLoginStatus()
+            log("开机自启动设置失败: \(error.localizedDescription)")
+            return error.localizedDescription
         }
     }
 

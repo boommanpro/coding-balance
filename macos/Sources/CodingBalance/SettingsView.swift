@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var appState: AppState
     @State private var editor: AccountEditor?
+    @State private var launchError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -76,9 +77,39 @@ struct SettingsView: View {
                 .disabled(appState.accounts.isEmpty)
                 .foregroundColor(.secondary)
             }
+
+            Divider()
+
+            GroupBox {
+                Toggle("开机自启动", isOn: Binding(
+                    get: { appState.launchAtLoginEnabled },
+                    set: { enabled in
+                        if let error = appState.setLaunchAtLogin(enabled) {
+                            launchError = error
+                        }
+                    }
+                ))
+                .toggleStyle(.switch)
+                .help("登录 macOS 后自动启动本应用")
+
+                Text("登录 macOS 后自动在菜单栏启动本应用。\n需将应用放置于「应用程序」文件夹后该功能才会生效（当前路径：\(Bundle.main.bundlePath)）。")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 2)
+            } label: {
+                Label("通用", systemImage: "gearshape.2")
+            }
         }
         .padding(20)
         .frame(width: 560)
+        .alert("无法设置开机自启动", isPresented: Binding(
+            get: { launchError != nil },
+            set: { if !$0 { launchError = nil } }
+        )) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(launchError ?? "")
+        }
         .sheet(item: $editor) { editor in
             AccountEditorView(account: editor.account) { account, validated in
                 Task {
