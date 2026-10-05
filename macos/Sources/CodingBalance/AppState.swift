@@ -82,14 +82,54 @@ final class AppState: NSObject, ObservableObject {
             button.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
             button.toolTip = "\(active.shortLabel) · 近5小时剩余 \(Int(remaining.rounded()))% · 左键详情 右键菜单"
         } else if hasConfiguredAccounts {
-            button.image = NSImage(systemSymbolName: "fuelpump.fill", accessibilityDescription: "Coding Balance")
+            button.image = makeLogoImage(size: 18)
             button.title = "…"
             button.toolTip = "Coding Balance · 数据加载中"
         } else {
-            button.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Coding Balance")
+            button.image = makeLogoImage(size: 18)
             button.title = ""
             button.toolTip = "Coding Balance · 点击配置账户"
         }
+    }
+
+    /// 品牌 Logo 小图（蓝底 + 白色 </>），与弹窗头部 BrandLogoView / AppIcon 一致
+    private func makeLogoImage(size: CGFloat = 18) -> NSImage {
+        let image = NSImage(size: NSSize(width: size, height: size))
+        image.isTemplate = false
+        image.lockFocus()
+        defer { image.unlockFocus() }
+
+        let rect = NSRect(x: 0, y: 0, width: size, height: size)
+        NSColor(calibratedRed: 47 / 255, green: 124 / 255, blue: 246 / 255, alpha: 1).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: size * 0.27, yRadius: size * 0.27).fill()
+
+        let path = NSBezierPath()
+        let lw = size * 0.115
+        path.lineWidth = lw
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        let insetX = size * 0.26          // 尖括号左右端点
+        let insetM = size * 0.05          // 尖括号臂到中心距离
+        let y0 = size * 0.32
+        let y1 = size * 0.68
+        let midX = size / 2
+        let midY = size / 2
+        // 左尖括号 <
+        path.move(to: NSPoint(x: insetX, y: midY))
+        path.line(to: NSPoint(x: midX - insetM, y: y0))
+        path.move(to: NSPoint(x: insetX, y: midY))
+        path.line(to: NSPoint(x: midX - insetM, y: y1))
+        // 右尖括号 >
+        path.move(to: NSPoint(x: size - insetX, y: midY))
+        path.line(to: NSPoint(x: midX + insetM, y: y0))
+        path.move(to: NSPoint(x: size - insetX, y: midY))
+        path.line(to: NSPoint(x: midX + insetM, y: y1))
+        // 斜杠 /
+        path.move(to: NSPoint(x: midX + lw * 0.5, y: y0))
+        path.line(to: NSPoint(x: midX - lw * 0.5, y: y1))
+        NSColor.white.setStroke()
+        path.stroke()
+        return image
     }
 
     /// 生成圆形剩余指示图（5h 剩余百分比），12 点方向顺时针
@@ -167,7 +207,11 @@ final class AppState: NSObject, ObservableObject {
             // 调试/截图：CB_KEEP_POPOVER=1 时保持弹窗常驻
             pop.behavior = ProcessInfo.processInfo.environment["CB_KEEP_POPOVER"] == "1" ? .applicationDefined : .transient
             pop.contentSize = NSSize(width: 420, height: 560)
-            pop.contentViewController = NSHostingController(rootView: MenuBarView().environmentObject(self))
+            // 调试/截图：CB_SHOW_TAB=models 时直接打开「模型」页
+            let initialTab: MenuBarView.MenuTab =
+                ProcessInfo.processInfo.environment["CB_SHOW_TAB"] == "models" ? .models : .balance
+            pop.contentViewController = NSHostingController(
+                rootView: MenuBarView(initialTab: initialTab).environmentObject(self))
             popover = pop
         }
         popover?.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
@@ -251,19 +295,23 @@ final class AppState: NSObject, ObservableObject {
 
     func refreshAll() {
         guard !accounts.isEmpty, !isRefreshing else { return }
+        Task { await refreshAllAwait() }
+    }
+
+    /// 等待全部账户刷新完成（供下拉刷新等需要等待完成的场景）
+    func refreshAllAwait() async {
+        guard !accounts.isEmpty, !isRefreshing else { return }
         isRefreshing = true
-        Task {
-            await withTaskGroup(of: Void.self) { group in
-                for account in accounts {
-                    group.addTask {
-                        await self.refresh(account: account)
-                    }
+        await withTaskGroup(of: Void.self) { group in
+            for account in accounts {
+                group.addTask {
+                    await self.refresh(account: account)
                 }
             }
-            self.isRefreshing = false
-            self.lastRefresh = Date()
-            self.log("刷新完成 账户=\(self.accounts.count) 快照=\(self.balances.count) 菜单栏=「\(self.menuBarText)」")
         }
+        isRefreshing = false
+        lastRefresh = Date()
+        log("刷新完成 账户=\(accounts.count) 快照=\(balances.count) 菜单栏=「\(menuBarText)」")
     }
 
     func refresh(account: Account) async {
@@ -291,7 +339,8 @@ final class AppState: NSObject, ObservableObject {
             modelInfos[account.id] = models
             modelErrors[account.id] = nil
             let sample = models.prefix(3).map {
-                "\($0.name)(QPS≈\(formatCompact($0.qps ?? 0)), RPM=\(formatCompact($0.rpm ?? 0)), 价格=\($0.price ?? "-"))"
+                "\($0.name)(QPS≈\(formatCompact($0.qps ?? 0)), RPM=\(formatCompact($0.rpm ?? 0)), "
+                    + "入=\($0.priceIn.map(formatPriceShort) ?? "-"), 出=\($0.priceOut.map(formatPriceShort) ?? "-"), 套餐=\($0.isCodingPlan))"
             }.joined(separator: ", ")
             log("模型刷新成功 \(account.shortLabel): \(models.count) 个 · \(sample)")
         } catch {

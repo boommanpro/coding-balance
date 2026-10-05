@@ -3,7 +3,11 @@ import SwiftUI
 /// 菜单栏详情弹窗（左键点击菜单栏状态项弹出）
 struct MenuBarView: View {
     @EnvironmentObject var appState: AppState
-    @State private var tab: MenuTab = .balance
+    @State private var tab: MenuTab
+
+    init(initialTab: MenuTab = .balance) {
+        _tab = State(initialValue: initialTab)
+    }
 
     enum MenuTab: String, CaseIterable, Identifiable {
         case balance = "额度"
@@ -33,9 +37,12 @@ struct MenuBarView: View {
                     case .models: ModelsView()
                     }
                 }
+                // 内容区始终略高于可视高度，保证可滚动以支持下拉刷新
+                .frame(minHeight: 470, alignment: .top)
                 .padding(.horizontal, 2)
                 .padding(.bottom, 6)
             }
+            .refreshable { await appState.refreshAllAwait() }
 
             Divider().padding(.vertical, 10)
             footer
@@ -64,9 +71,7 @@ struct MenuBarView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "fuelpump.fill")
-                .font(.system(size: 14))
-                .foregroundColor(.accentColor)
+            BrandLogoView(size: 20)
             Text("Coding Balance")
                 .font(.headline)
             if appState.isRefreshing {
@@ -251,13 +256,6 @@ struct MenuBarView: View {
 
     private var footer: some View {
         HStack {
-            Button {
-                appState.refreshAll()
-            } label: {
-                Label("刷新", systemImage: "arrow.clockwise")
-            }
-            .disabled(appState.isRefreshing || appState.accounts.isEmpty)
-
             Spacer()
 
             Button {

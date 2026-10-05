@@ -115,16 +115,22 @@ struct BalanceSnapshot: Identifiable, Hashable {
 
 /// 单个模型的可用性、限流与价格信息。
 /// - QPS ≈ RPM / 60（火山引擎限流以 RPM=每分钟请求数 / TPM=每分钟Token数 表达）
+/// - 价格统一换算为「元/百万tokens」（API 原始单位为千tokens，×1000 换算）
 struct ModelInfo: Identifiable, Hashable {
     var id: String { name }
 
-    let name: String         // 模型 ID / 基础模型名
-    let rpm: Double?         // 当前每分钟请求数上限
-    let tpm: Double?         // 当前每分钟 Token 数上限
-    let tpd: Double?         // 当前每日 Token 限额
-    let price: String?       // 价格描述（元/单位）
+    let name: String          // 模型 ID / 基础模型名
+    let rpm: Double?          // 当前每分钟请求数上限
+    let tpm: Double?          // 当前每分钟 Token 数上限
+    let tpd: Double?          // 当前每日 Token 限额
+    let priceIn: Double?      // 输入单价（元/百万tokens）
+    let priceOut: Double?     // 输出单价（元/百万tokens）
+    let priceExtra: String?   // 其他计费项（如按张计费的图像模型）
+    let isCodingPlan: Bool    // 是否 Coding Plan 套餐内模型
 
     var qps: Double? { rpm.map { $0 / 60 } }
+
+    var hasPrice: Bool { priceIn != nil || priceOut != nil || priceExtra != nil }
 }
 
 // MARK: - 通用数值转换（API 中数字可能是 number 也可能是 string）
@@ -164,6 +170,17 @@ func formatFull(_ value: Double) -> String {
         return String(format: "%.0f", value)
     }
     return String(format: "%.2f", value)
+}
+
+/// 价格展示（元/百万tokens）：去掉无意义尾零，如 9 / 0.7 / 9.5 / 0.16
+func formatPriceShort(_ value: Double) -> String {
+    if value == value.rounded() {
+        return String(format: "%.0f", value)
+    }
+    var text = String(format: "%.4f", value)
+    while text.hasSuffix("0") { text.removeLast() }
+    if text.hasSuffix(".") { text.removeLast() }
+    return text
 }
 
 func formatTime(_ ts: Int64?) -> String {
