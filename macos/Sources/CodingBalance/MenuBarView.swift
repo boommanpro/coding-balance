@@ -129,8 +129,12 @@ struct MenuBarView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 14).fill(Color(nsColor: .controlBackgroundColor)))
         } else if let snapshot = appState.balances[account.id] {
-            heroCard(account: account, snapshot: snapshot)
-            windowList(snapshot: snapshot)
+            if snapshot.plan == .credit {
+                CreditBalanceCard(account: account, snapshot: snapshot)
+            } else {
+                heroCard(account: account, snapshot: snapshot)
+                windowList(snapshot: snapshot)
+            }
         } else {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
@@ -237,6 +241,10 @@ struct MenuBarView: View {
                             Text("5h 剩 \(Int(five.remainingPercent.rounded()))%")
                                 .font(.system(.caption, design: .monospaced))
                                 .foregroundColor(five.remainingPercent < 20 ? .red : .primary)
+                        } else if let snap = appState.balances[account.id], let summary = snap.creditSummary {
+                            Text(summary)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundColor(snap.creditIsLow ? .red : .primary)
                         } else if appState.balances[account.id] != nil {
                             Text("—").font(.caption).foregroundColor(.secondary)
                         } else {
@@ -312,6 +320,96 @@ struct RingView<Content: View>: View {
     }
 }
 
+// MARK: - 按量余额卡（Venice 等信用型账户）
+
+/// 信用型账户主卡：大号主余额 + 可消费状态 + 账户信息行 + 各币种余额明细
+struct CreditBalanceCard: View {
+    let account: Account
+    let snapshot: BalanceSnapshot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                if let primary = snapshot.credits?.first {
+                    Text("$\(formatFull(primary.amount))")
+                        .font(.system(.title, design: .rounded).weight(.bold))
+                        .monospacedDigit()
+                } else {
+                    Text("$ —")
+                        .font(.system(.title, design: .rounded).weight(.bold))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                consumeBadge
+            }
+            Text(subtitleLine)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Divider()
+            ForEach(snapshot.credits ?? []) { credit in
+                HStack {
+                    Text(credit.label)
+                        .font(.callout)
+                    Spacer()
+                    Text(credit.displayText)
+                        .font(.system(.callout, design: .monospaced))
+                }
+            }
+            if let epoch = parseISODate(snapshot.nextEpochBegins) {
+                Text("限额周期重置 \(Self.epochFormatter.string(from: epoch))")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(nsColor: .controlBackgroundColor)))
+    }
+
+    private static let epochFormatter: DateFormatter = {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "MM-dd HH:mm"
+        fmt.timeZone = .current
+        return fmt
+    }()
+
+    /// 可消费状态徽标
+    @ViewBuilder
+    private var consumeBadge: some View {
+        switch snapshot.canConsume {
+        case .some(true):
+            HStack(spacing: 4) {
+                Circle().fill(.green).frame(width: 6, height: 6)
+                Text("可消费").font(.caption)
+            }
+            .foregroundColor(.secondary)
+        case .some(false):
+            HStack(spacing: 4) {
+                Circle().fill(.red).frame(width: 6, height: 6)
+                Text("不可消费").font(.caption)
+            }
+            .foregroundColor(.red)
+        case .none:
+            EmptyView()
+        }
+    }
+
+    /// 账户信息行：账户名 · 层级 · Key 到期
+    private var subtitleLine: String {
+        var parts = [account.shortLabel]
+        if let tier = snapshot.tier, !tier.isEmpty {
+            parts.append(tier.lowercased() == "paid" ? "付费层" : "\(tier) 层")
+        }
+        if let end = parseISODate(snapshot.endTime) {
+            let fmt = DateFormatter()
+            fmt.dateFormat = "yyyy-MM-dd"
+            parts.append("到期 \(fmt.string(from: end))")
+        } else {
+            parts.append("Key 永久有效")
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
 // MARK: - 额度窗口行
 
 struct WindowRowView: View {
@@ -371,7 +469,7 @@ struct EmptyConfigView: View {
                 .foregroundColor(.secondary)
             Text("尚未配置任何账户")
                 .font(.headline)
-            Text("添加火山方舟账户并配置 AK/SK 后，\n菜单栏将实时显示近5小时剩余额度。")
+            Text("添加火山方舟或 Venice 账户后，\n菜单栏将实时显示剩余额度与余额。")
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)

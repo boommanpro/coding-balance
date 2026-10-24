@@ -23,7 +23,16 @@ final class AppState: NSObject, ObservableObject {
     @Published private(set) var launchAtLoginEnabled = false
 
     private var refreshTimer: Timer?
+    /// 每账户上次发起刷新的时间（按平台间隔节流的依据；手动刷新同样会更新）
+    private var lastRefreshedAt: [UUID: Date] = [:]
     private let activeKey = "codingbalance.activeAccountID"
+
+    /// 各平台定时刷新间隔：默认见 ProviderKind.defaultRefreshInterval（方舟 60s、Venice 20min），
+    /// 可用 UserDefaults 键 `codingbalance.refreshInterval.<rawValue>` 覆盖；非法值（<30s）回落默认
+    static func refreshInterval(for kind: ProviderKind) -> TimeInterval {
+        let configured = UserDefaults.standard.double(forKey: "codingbalance.refreshInterval.\(kind.rawValue)")
+        return configured >= 30 ? configured : kind.defaultRefreshInterval
+    }
 
     // MARK: 菜单栏状态项（NSStatusItem）
 
@@ -47,6 +56,13 @@ final class AppState: NSObject, ObservableObject {
         }
         if env["CB_SHOW_SETTINGS"] == "1" {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.openSettings() }
+        }
+        // 调试/截图：CB_RENDER_PREVIEW=<png路径> 把弹窗内容离屏渲染为 PNG（配合 CB_SHOW_TAB 选页）
+        if let path = env["CB_RENDER_PREVIEW"], !path.isEmpty {
+            let tab: MenuBarView.MenuTab = env["CB_SHOW_TAB"] == "models" ? .models : .balance
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                self?.renderPopoverPreview(path: path, tab: tab)
+            }
         }
     }
 
@@ -74,17 +90,28 @@ final class AppState: NSObject, ObservableObject {
             .store(in: &cancellables)
     }
 
-    /// 菜单栏按钮：圆形「近5小时剩余」指示环 + 百分比
+    /// 菜单栏按钮：窗口型账户显示圆形「近5小时剩余」指示环 + 百分比；
+    /// 余额型账户（Venice）显示 Logo + 余额金额
     private func updateStatusItem() {
         guard let button = statusItem?.button else { return }
         button.imagePosition = .imageLeading
-        if let active = activeAccount, let snap = balances[active.id],
-           let fiveHour = snap.fiveHour {
-            let remaining = fiveHour.remainingPercent
-            button.image = makeRingImage(remainingPercent: remaining)
-            button.title = "\(Int(remaining.rounded()))%"
-            button.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
-            button.toolTip = "\(active.shortLabel) · 近5小时剩余 \(Int(remaining.rounded()))% · 左键详情 右键菜单"
+        if let active = activeAccount, let snap = balances[active.id] {
+            if let fiveHour = snap.fiveHour {
+                let remaining = fiveHour.remainingPercent
+                button.image = makeRingImage(remainingPercent: remaining)
+                button.title = "\(Int(remaining.rounded()))%"
+                button.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+                button.toolTip = "\(active.shortLabel) · 近5小时剩余 \(Int(remaining.rounded()))% · 左键详情 右键菜单"
+            } else if let summary = snap.creditSummary {
+                button.image = makeLogoImage(size: 18)
+                button.title = summary
+                button.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+                button.toolTip = "\(active.shortLabel) · 余额 \(summary)\(snap.canConsume == false ? " · 不可消费" : "") · 左键详情 右键菜单"
+            } else {
+                button.image = makeLogoImage(size: 18)
+                button.title = "—"
+                button.toolTip = "\(active.shortLabel) · 暂无额度数据"
+            }
         } else if hasConfiguredAccounts {
             button.image = makeLogoImage(size: 18)
             button.title = "…"
@@ -200,6 +227,37 @@ final class AppState: NSObject, ObservableObject {
     @objc private func menuRefresh() { refreshAll() }
     @objc private func menuManage() { openSettings() }
 
+    /// 调试用：把弹窗内容离屏渲染为 PNG（无需屏幕录制权限，供自动化视觉验证）
+    private func renderPopoverPreview(path: String, tab: MenuBarView.MenuTab) {
+        let hosting = NSHostingController(rootView: MenuBarView(initialTab: tab).environmentObject(self))
+        let view = hosting.view
+        view.setFrameSize(NSSize(width: 420, height: 560))
+        // 大列表（模型页）需要额外的布局周期才能完成排版
+        view.layoutSubtreeIfNeeded()
+        view.needsLayout = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            view.layoutSubtreeIfNeeded()
+            guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            let captured = NSImage()
+            captured.addRepresentation(rep)
+            // 离屏视图背景透明，PNG 中透明区呈黑色：合成到白底便于查看
+            let canvas = NSImage(size: view.bounds.size)
+            canvas.lockFocus()
+            NSColor.white.setFill()
+            view.bounds.fill()
+            captured.draw(in: view.bounds)
+            canvas.unlockFocus()
+            guard let tiff = canvas.tiffRepresentation,
+                  let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else {
+                self.log("预览渲染失败 \(path)")
+                return
+            }
+            try? png.write(to: URL(fileURLWithPath: path))
+            self.log("预览已渲染 \(path)")
+        }
+    }
+
     @objc private func togglePopover() {
         guard let button = statusItem?.button else { return }
         if popover?.isShown == true {
@@ -270,14 +328,19 @@ final class AppState: NSObject, ObservableObject {
     // MARK: 菜单栏展示
 
     /// 未配置时返回空串（仅显示图标）；
-    /// 已配置则显示「当前使用账户」的 5h / 周 / 月 剩余百分比（纯数字，简短防被菜单栏挤出）
+    /// 窗口型账户显示「当前使用账户」的 5h / 周 / 月 剩余百分比（纯数字，简短防被菜单栏挤出）；
+    /// 余额型账户（Venice）显示余额金额
     var menuBarText: String {
         guard let active = activeAccount else { return "" }
         guard let snap = balances[active.id] else { return "…" }
         var parts: [String] = []
-        if let f = snap.fiveHour { parts.append("5h \(Int(f.remainingPercent.rounded()))%") }
-        if let w = snap.weekly { parts.append("周 \(Int(w.remainingPercent.rounded()))%") }
-        if let m = snap.monthly { parts.append("月 \(Int(m.remainingPercent.rounded()))%") }
+        if snap.plan == .credit {
+            if let summary = snap.creditSummary { parts.append(summary) }
+        } else {
+            if let f = snap.fiveHour { parts.append("5h \(Int(f.remainingPercent.rounded()))%") }
+            if let w = snap.weekly { parts.append("周 \(Int(w.remainingPercent.rounded()))%") }
+            if let m = snap.monthly { parts.append("月 \(Int(m.remainingPercent.rounded()))%") }
+        }
         guard !parts.isEmpty else { return "—" }
         return parts.joined(separator: " ")
     }
@@ -286,15 +349,29 @@ final class AppState: NSObject, ObservableObject {
 
     // MARK: 刷新
 
-    func startAutoRefresh(interval: TimeInterval = 60) {
+    /// 定时调度：30s tick，逐账户检查是否到达其平台的刷新间隔（方舟默认 60s、Venice 默认 20min）
+    func startAutoRefresh() {
         refreshTimer?.invalidate()
-        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.refreshAll()
+                self?.refreshDueAccounts()
             }
         }
         RunLoop.main.add(timer, forMode: .common)
         refreshTimer = timer
+    }
+
+    /// 刷新已到期的账户（手动刷新不受此节流限制）
+    private func refreshDueAccounts() {
+        guard !accounts.isEmpty, !isRefreshing else { return }
+        let now = Date()
+        let due = accounts.filter { account in
+            guard let last = lastRefreshedAt[account.id] else { return true }
+            return now.timeIntervalSince(last) >= Self.refreshInterval(for: account.provider)
+        }
+        guard !due.isEmpty else { return }
+        log("定时调度：\(due.count)/\(accounts.count) 个账户到期刷新")
+        Task { await refreshAccounts(due) }
     }
 
     func refreshAll() {
@@ -304,10 +381,14 @@ final class AppState: NSObject, ObservableObject {
 
     /// 等待全部账户刷新完成（供下拉刷新等需要等待完成的场景）
     func refreshAllAwait() async {
-        guard !accounts.isEmpty, !isRefreshing else { return }
+        await refreshAccounts(accounts)
+    }
+
+    private func refreshAccounts(_ targets: [Account]) async {
+        guard !targets.isEmpty, !isRefreshing else { return }
         isRefreshing = true
         await withTaskGroup(of: Void.self) { group in
-            for account in accounts {
+            for account in targets {
                 group.addTask {
                     await self.refresh(account: account)
                 }
@@ -315,18 +396,24 @@ final class AppState: NSObject, ObservableObject {
         }
         isRefreshing = false
         lastRefresh = Date()
-        log("刷新完成 账户=\(accounts.count) 快照=\(balances.count) 菜单栏=「\(menuBarText)」")
+        log("刷新完成 账户=\(targets.count) 快照=\(balances.count) 菜单栏=「\(menuBarText)」")
     }
 
     func refresh(account: Account) async {
+        lastRefreshedAt[account.id] = Date()
         let provider = makeProvider(account.provider)
         do {
             let snapshot = try await provider.fetchBalance(account: account)
             balances[account.id] = snapshot
             errors[account.id] = nil
-            log("刷新成功 \(account.shortLabel): plan=\(snapshot.plan.rawValue) "
-                + "5h=\(snapshot.fiveHour?.usedPercent ?? -1) 周=\(snapshot.weekly?.usedPercent ?? -1) "
-                + "月=\(snapshot.monthly?.usedPercent ?? -1)")
+            if snapshot.plan == .credit {
+                log("刷新成功 \(account.shortLabel): plan=\(snapshot.plan.rawValue) "
+                    + "余额=\(snapshot.creditSummary ?? "-") 可消费=\(snapshot.canConsume.map(String.init) ?? "-")")
+            } else {
+                log("刷新成功 \(account.shortLabel): plan=\(snapshot.plan.rawValue) "
+                    + "5h=\(snapshot.fiveHour?.usedPercent ?? -1) 周=\(snapshot.weekly?.usedPercent ?? -1) "
+                    + "月=\(snapshot.monthly?.usedPercent ?? -1)")
+            }
         } catch {
             balances[account.id] = nil
             errors[account.id] = (error as? ProviderError)?.errorDescription ?? error.localizedDescription
@@ -404,6 +491,7 @@ final class AppState: NSObject, ObservableObject {
         errors[account.id] = nil
         modelInfos[account.id] = nil
         modelErrors[account.id] = nil
+        lastRefreshedAt[account.id] = nil
         if activeAccountID == account.id {
             activeAccountID = accounts.first?.id
             UserDefaults.standard.set(activeAccountID?.uuidString ?? "", forKey: activeKey)
@@ -417,6 +505,7 @@ final class AppState: NSObject, ObservableObject {
         errors.removeAll()
         modelInfos.removeAll()
         modelErrors.removeAll()
+        lastRefreshedAt.removeAll()
         activeAccountID = nil
         UserDefaults.standard.removeObject(forKey: activeKey)
         AccountStore.shared.save(accounts)

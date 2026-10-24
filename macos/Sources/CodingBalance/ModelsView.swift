@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// 弹窗「模型」页：可用模型 + 限流（QPS≈RPM/60）+ 价格（元/百万tokens）
-/// 支持按来源过滤（全部/套餐内/其他），点击表头按 QPS/RPM/TPM/输入/输出价格排序（空值排末尾），
-/// 点击模型行可复制模型名。
+/// 弹窗「模型」页：可用模型 + 限流（QPS≈RPM/60）+ 价格（方舟：元/百万tokens；Venice：$/百万tokens）
+/// 支持按来源过滤（方舟：全部/套餐内/其他；Venice：全部/文本/图像/其他），
+/// 点击表头按 QPS/RPM/TPM/输入/输出价格排序（空值排末尾），点击模型行可复制模型名。
 struct ModelsView: View {
     @EnvironmentObject var appState: AppState
 
@@ -13,11 +13,25 @@ struct ModelsView: View {
 
     private var account: Account? { appState.activeAccount }
 
+    /// 过滤选项按平台切换：方舟按「套餐内」，Venice（多模态）按「文本/图像」
+    private var isVenice: Bool { account?.provider == .venice }
+
     enum SourceFilter: String, CaseIterable, Identifiable {
         case all = "全部"
         case codingPlan = "套餐内"
         case other = "其他"
+        case text = "文本"
+        case image = "图像"
         var id: String { rawValue }
+    }
+
+    /// 当前平台可用的过滤项（切换账户平台后防止残留无效选项）
+    private var availableFilters: [SourceFilter] {
+        isVenice ? [.all, .text, .image, .other] : [.all, .codingPlan, .other]
+    }
+
+    private var effectiveFilter: SourceFilter {
+        availableFilters.contains(sourceFilter) ? sourceFilter : .all
     }
 
     enum SortKey: String, CaseIterable, Identifiable {
@@ -119,13 +133,13 @@ struct ModelsView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Spacer()
-                Text("价格：元/百万tokens")
+                Text(priceUnitCaption)
                     .font(.caption2)
                     .foregroundColor(Color.secondary.opacity(0.6))
             }
             HStack(spacing: 8) {
                 Picker("", selection: $sourceFilter) {
-                    ForEach(SourceFilter.allCases) { f in
+                    ForEach(availableFilters) { f in
                         Text(f.rawValue).tag(f)
                     }
                 }
@@ -145,6 +159,11 @@ struct ModelsView: View {
                 .help("恢复为模型名称排序")
             }
         }
+    }
+
+    /// 价格单位说明：方舟为元，Venice 为美元（图像等按张/按档计价）
+    private var priceUnitCaption: String {
+        isVenice ? "价格：$/百万tokens（图像等按张/档）" : "价格：元/百万tokens"
     }
 
     // MARK: 表头（点击排序）
@@ -188,10 +207,16 @@ struct ModelsView: View {
     // MARK: 过滤 / 排序
 
     private func filtered(_ models: [ModelInfo]) -> [ModelInfo] {
-        switch sourceFilter {
+        switch effectiveFilter {
         case .all: return models
         case .codingPlan: return models.filter { $0.isCodingPlan }
-        case .other: return models.filter { !$0.isCodingPlan }
+        case .text: return models.filter { $0.modality == .text }
+        case .image: return models.filter { $0.modality == .image }
+        case .other:
+            if isVenice {
+                return models.filter { $0.modality != .text && $0.modality != .image }
+            }
+            return models.filter { !$0.isCodingPlan }
         }
     }
 
@@ -270,6 +295,15 @@ struct ModelRowView: View {
                         .background(Capsule().fill(Color.accentColor.opacity(0.14)))
                         .foregroundColor(.accentColor)
                 }
+                if let modality = model.modality, modality != .text {
+                    // 文本是默认模态不加徽标，仅标注图像/视频/语音等
+                    Text(modality.displayName)
+                        .font(.system(size: 9, weight: .semibold))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                        .foregroundColor(.secondary)
+                }
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundColor(copied ? .green : Color.secondary.opacity(0.55))
@@ -305,6 +339,9 @@ struct ModelRowView: View {
     private var tooltip: String {
         // 第一行始终展示完整模型名（长名称被截断时悬停可看全）
         var parts = [model.name]
+        if let modality = model.modality, modality != .text {
+            parts.append(modality.displayName)
+        }
         if copied {
             parts.append("已复制到剪贴板")
         } else {

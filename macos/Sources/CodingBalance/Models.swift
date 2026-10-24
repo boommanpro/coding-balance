@@ -1,15 +1,26 @@
 import Foundation
 
-// MARK: - 平台类型（当前仅火山方舟，后续可扩展）
+// MARK: - 平台类型
 
 enum ProviderKind: String, Codable, CaseIterable, Identifiable {
     case ark = "ark"
+    case venice = "venice"
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
         case .ark: return "火山方舟"
+        case .venice: return "Venice"
+        }
+    }
+
+    /// 各平台定时刷新默认间隔（秒）。可用 UserDefaults 键
+    /// `codingbalance.refreshInterval.<rawValue>` 覆盖，非法值（<30s）一律回落默认。
+    var defaultRefreshInterval: TimeInterval {
+        switch self {
+        case .ark: return 60
+        case .venice: return 20 * 60
         }
     }
 }
@@ -22,11 +33,26 @@ struct Account: Codable, Identifiable, Hashable {
     var provider: ProviderKind
     var accessKey: String
     var secretKey: String
+    /// 单 Key 凭据平台（如 Venice 的 Bearer API Key）；方舟不使用
+    var apiKey: String? = nil
 
     /// 菜单栏/弹窗里展示的短名称
     var shortLabel: String {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         return trimmed.isEmpty ? provider.displayName : trimmed
+    }
+
+    /// 账户列表展示用的凭据缩写
+    var credentialPreview: String {
+        func abbreviate(_ raw: String, limit: Int = 12) -> String {
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return "未填写" }
+            return trimmed.count <= limit ? trimmed : trimmed.prefix(limit) + "…"
+        }
+        switch provider {
+        case .ark: return abbreviate(accessKey)
+        case .venice: return abbreviate(apiKey ?? "")
+        }
     }
 }
 
@@ -87,9 +113,26 @@ struct PlanWindow: Hashable {
 enum PlanKind: String {
     case codingPlan = "coding"
     case agentPlan = "agent"
+    /// 按量余额型（Venice 等）：无周期窗口，只有货币余额
+    case credit = "credit"
 }
 
 // MARK: - 余额快照
+
+/// 一项货币余额（如 USD 12.34、DIEM 90.5）
+struct CreditBalance: Hashable, Identifiable {
+    var id: String { label }
+    let label: String
+    let amount: Double
+
+    /// 展示文本：USD 及美元计价的附赠额度带 $ 前缀，其余原样
+    var displayText: String {
+        if label == "USD" || label.hasPrefix("附赠") {
+            return "$\(formatFull(amount))"
+        }
+        return formatFull(amount)
+    }
+}
 
 struct BalanceSnapshot: Identifiable, Hashable {
     var id: UUID { accountID }
@@ -109,13 +152,58 @@ struct BalanceSnapshot: Identifiable, Hashable {
     var hasAnyWindow: Bool {
         fiveHour != nil || daily != nil || weekly != nil || monthly != nil
     }
+
+    // 以下为按量余额型（plan == .credit）字段，方舟快照均为 nil
+    /// 货币余额明细，首项为主余额
+    var credits: [CreditBalance]? = nil
+    /// Key 是否允许消费（余额充足且未受限）
+    var canConsume: Bool? = nil
+    /// API 层级（如 paid）
+    var tier: String? = nil
+    /// 限流周期重置时间（ISO8601）
+    var nextEpochBegins: String? = nil
+
+    /// 信用型主摘要（菜单栏/总览用，如 "$12.3"）
+    var creditSummary: String? {
+        guard plan == .credit, let first = credits?.first else { return nil }
+        return "$\(formatMoneyShort(first.amount))"
+    }
+
+    /// 主余额是否告急（<1 或不允许消费）
+    var creditIsLow: Bool {
+        guard plan == .credit else { return false }
+        if canConsume == false { return true }
+        return (credits?.first?.amount ?? 1) < 1
+    }
 }
 
 // MARK: - 模型限流信息（模型 + QPS/RPM/TPM + 价格）
 
+/// 价格币种（方舟为元，Venice 为美元）
+enum PriceCurrency: String, Hashable {
+    case cny, usd
+}
+
+/// 模型模态（Venice 等多模态平台用；方舟为 LLM，不设置）
+enum ModelModality: String, Hashable {
+    case text, image, video, audio, embedding, other
+
+    var displayName: String {
+        switch self {
+        case .text: return "文本"
+        case .image: return "图像"
+        case .video: return "视频"
+        case .audio: return "语音"
+        case .embedding: return "嵌入"
+        case .other: return "其他"
+        }
+    }
+}
+
 /// 单个模型的可用性、限流与价格信息。
 /// - QPS ≈ RPM / 60（火山引擎限流以 RPM=每分钟请求数 / TPM=每分钟Token数 表达）
-/// - 价格统一换算为「元/百万tokens」（API 原始单位为千tokens，×1000 换算）
+/// - 价格统一换算为「元/百万tokens」（API 原始单位为千tokens，×1000 换算）；
+///   Venice 平台为美元/百万tokens（priceCurrency = .usd）
 struct ModelInfo: Identifiable, Hashable {
     var id: String { name }
 
@@ -123,10 +211,12 @@ struct ModelInfo: Identifiable, Hashable {
     let rpm: Double?          // 当前每分钟请求数上限
     let tpm: Double?          // 当前每分钟 Token 数上限
     let tpd: Double?          // 当前每日 Token 限额
-    let priceIn: Double?      // 输入单价（元/百万tokens）
-    let priceOut: Double?     // 输出单价（元/百万tokens）
+    let priceIn: Double?      // 输入单价（百万tokens，币种见 priceCurrency）
+    let priceOut: Double?     // 输出单价（百万tokens，币种见 priceCurrency）
     let priceExtra: String?   // 其他计费项（如按张计费的图像模型）
     let isCodingPlan: Bool    // 是否 Coding Plan 套餐内模型
+    var modality: ModelModality? = nil
+    var priceCurrency: PriceCurrency = .cny
 
     var qps: Double? { rpm.map { $0 / 60 } }
 
@@ -190,6 +280,23 @@ func formatTime(_ ts: Int64?) -> String {
     fmt.dateFormat = "MM-dd HH:mm"
     fmt.timeZone = .current
     return fmt.string(from: date)
+}
+
+/// 余额短显示（菜单栏等窄空间）：$123 / $12.3 / $0.98
+func formatMoneyShort(_ value: Double) -> String {
+    if value >= 100 { return String(format: "%.0f", value) }
+    if value >= 10 { return String(format: "%.1f", value) }
+    return String(format: "%.2f", value)
+}
+
+/// ISO8601 时间串解析（兼容毫秒精度），失败返回 nil
+func parseISODate(_ iso: String?) -> Date? {
+    guard let iso, !iso.isEmpty else { return nil }
+    let plain = ISO8601DateFormatter()
+    if let d = plain.date(from: iso) { return d }
+    let frac = ISO8601DateFormatter()
+    frac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return frac.date(from: iso)
 }
 
 func planStatusText(_ status: String?) -> String {

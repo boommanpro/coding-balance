@@ -5,6 +5,23 @@ struct SettingsView: View {
     @EnvironmentObject var appState: AppState
     @State private var editor: AccountEditor?
     @State private var launchError: String?
+    @State private var proxyURL = UserDefaults.standard.string(forKey: VeniceProvider.proxyDefaultsKey) ?? ""
+    @State private var savedProxyURL = (UserDefaults.standard.string(forKey: VeniceProvider.proxyDefaultsKey) ?? "")
+        .trimmingCharacters(in: .whitespaces)
+    @State private var proxySaved = false
+
+    /// 保存代理配置到 UserDefaults；下次刷新生效
+    private func saveProxy() {
+        let trimmed = proxyURL.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty {
+            UserDefaults.standard.removeObject(forKey: VeniceProvider.proxyDefaultsKey)
+        } else {
+            UserDefaults.standard.set(trimmed, forKey: VeniceProvider.proxyDefaultsKey)
+        }
+        savedProxyURL = trimmed
+        proxySaved = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { proxySaved = false }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -18,7 +35,7 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                     Text("暂无账户")
                         .font(.headline)
-                    Text("添加一个火山方舟账户，配置 AK/SK 后即可在菜单栏查看余额。")
+                    Text("添加火山方舟或 Venice 账户，配置凭据后即可在菜单栏查看额度/余额。")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -32,9 +49,11 @@ struct SettingsView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(account.name.isEmpty ? account.provider.displayName : account.name)
                                     .font(.body.weight(.medium))
-                                Text("\(account.provider.displayName) · \(account.accessKey)")
+                                Text("\(account.provider.displayName) · \(account.credentialPreview)")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
                             }
                             Spacer()
                             if let error = appState.errors[account.id] {
@@ -96,6 +115,23 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.top, 2)
+
+                Divider().padding(.vertical, 6)
+
+                HStack {
+                    TextField("网络代理（可选）", text: $proxyURL)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+                        .help("例如 http://127.0.0.1:7897；仅 Venice 请求使用，留空走系统代理")
+                    Button(proxySaved ? "已保存" : "保存") {
+                        saveProxy()
+                    }
+                    .disabled(proxyURL.trimmingCharacters(in: .whitespaces) == savedProxyURL)
+                }
+                Text("仅 Venice 请求使用（api.venice.ai 需可直连或经代理访问）；留空时跟随系统代理，修改后下次刷新生效。")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 2)
             } label: {
                 Label("通用", systemImage: "gearshape.2")
             }
@@ -138,6 +174,7 @@ struct AccountEditorView: View {
     @State private var provider: ProviderKind
     @State private var accessKey: String
     @State private var secretKey: String
+    @State private var apiKey: String
     @State private var isTesting = false
     @State private var testResult: String?
     @State private var testSuccess = false
@@ -149,12 +186,18 @@ struct AccountEditorView: View {
         _provider = State(initialValue: account?.provider ?? .ark)
         _accessKey = State(initialValue: account?.accessKey ?? "")
         _secretKey = State(initialValue: account?.secretKey ?? "")
+        _apiKey = State(initialValue: account?.apiKey ?? "")
     }
 
     private var isEditing: Bool { account != nil }
     private var canSave: Bool {
-        !accessKey.trimmingCharacters(in: .whitespaces).isEmpty &&
-        !secretKey.trimmingCharacters(in: .whitespaces).isEmpty
+        switch provider {
+        case .ark:
+            return !accessKey.trimmingCharacters(in: .whitespaces).isEmpty &&
+                !secretKey.trimmingCharacters(in: .whitespaces).isEmpty
+        case .venice:
+            return !apiKey.trimmingCharacters(in: .whitespaces).isEmpty
+        }
     }
 
     var body: some View {
@@ -174,13 +217,25 @@ struct AccountEditorView: View {
                 }
                 .disabled(isEditing) // 暂不允许切换平台，后续扩展
 
-                SecureField("Access Key ID", text: $accessKey)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.body, design: .monospaced))
+                switch provider {
+                case .ark:
+                    SecureField("Access Key ID", text: $accessKey)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
 
-                SecureField("Secret Access Key", text: $secretKey)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.body, design: .monospaced))
+                    SecureField("Secret Access Key", text: $secretKey)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+
+                case .venice:
+                    SecureField("API Key", text: $apiKey)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+
+                    Text("在 venice.ai/settings/api 生成；Inference / Admin 类型均可查询余额与限流。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
 
                 if let testResult = testResult {
                     Label(testResult, systemImage: testSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
@@ -240,7 +295,8 @@ struct AccountEditorView: View {
                 name: name.trimmingCharacters(in: .whitespaces),
                 provider: provider,
                 accessKey: accessKey.trimmingCharacters(in: .whitespaces),
-                secretKey: secretKey.trimmingCharacters(in: .whitespaces))
+                secretKey: secretKey.trimmingCharacters(in: .whitespaces),
+                apiKey: provider == .venice ? apiKey.trimmingCharacters(in: .whitespaces) : nil)
     }
 
     private func save() {

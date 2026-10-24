@@ -33,5 +33,6 @@ protocol Provider {
 func makeProvider(_ kind: ProviderKind) -> Provider {
     switch kind {
     case .ark: return ArkProvider()
+    case .venice: return VeniceProvider()
     }
 }

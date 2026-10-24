@@ -2,6 +2,21 @@
 
 本项目采用 [语义化版本](https://semver.org/lang/zh-CN/)，`v*` 标签触发自动构建并发布到 GitHub Releases。
 
+## v1.4.0 (2026-10-24)
+
+**功能**
+- 新增 **Venice.ai 平台支持**：添加账户时可选「Venice」，凭据为单个 API Key（Inference / Admin 类型均可）
+- Venice 余额卡：USD / DIEM / 附赠额度明细、可消费状态徽标、Key 层级（如 paid）与到期时间、限额周期重置时间；菜单栏状态项直接显示余额金额（如 `$5`）
+- Venice 模型页：展示当前 Key 实际可用的全部模态模型（文本/图像/视频/语音/嵌入），含 RPM/TPM 限流与价格（$/百万tokens，图像等按张/按档计价），支持「全部/文本/图像/其他」模态过滤与非文本模态徽标
+- 设置窗口「通用」区新增**网络代理**配置（如 `http://127.0.0.1:7897`）：仅 Venice 请求使用，留空走系统代理，修改后下次刷新生效
+- 账户编辑表单按平台自动切换凭据输入项（方舟 AK/SK ↔ Venice API Key）
+
+**技术**
+- 自动刷新按平台差异化：方舟默认 60 秒、Venice 默认 20 分钟；30 秒调度 tick 逐账户按平台间隔节流，手动刷新不受限；可用 `defaults write com.codingbalance.menu codingbalance.refreshInterval.<ark|venice> -int <秒>` 覆盖（<30s 视为无效回落默认）
+- `Account` 新增可选 `apiKey` 字段（单 Key 平台），旧 accounts.json 向后兼容无需迁移
+- `BalanceSnapshot` 新增 credit 型字段（credits/canConsume/tier/nextEpochBegins），UI 按 `PlanKind` 分形渲染窗口额度卡或余额卡
+- Venice 请求支持可选 HTTP(S) 代理（URLSession connectionProxyDictionary，按代理地址缓存会话）；直连失败时错误信息提示代理配置
+
 ## v1.3.0 (2026-10-05)
 
 **功能**
