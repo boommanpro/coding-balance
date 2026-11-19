@@ -128,11 +128,12 @@ final class AppState: NSObject, ObservableObject {
                 button.title = "\(Int(remaining.rounded()))%"
                 button.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
                 button.toolTip = "\(active.shortLabel) · 近5小时剩余 \(Int(remaining.rounded()))% · 左键详情 右键菜单"
-            } else if let summary = snap.creditSummary {
+            } else if let primary = snap.primaryCredit, let summary = snap.creditSummary {
                 button.image = makeLogoImage(size: 18)
                 button.title = summary
                 button.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
-                button.toolTip = "\(active.shortLabel) · 余额 \(summary)\(snap.canConsume == false ? " · 不可消费" : "") · 左键详情 右键菜单"
+                let what = primary.label.hasPrefix("附赠") ? "附赠额度" : "余额"
+                button.toolTip = "\(active.shortLabel) · \(what) \(formatUSD(primary.amount))\(snap.canConsume == false ? " · 不可消费" : "") · 左键详情 右键菜单"
             } else {
                 button.image = makeLogoImage(size: 18)
                 button.title = "—"

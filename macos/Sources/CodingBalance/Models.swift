@@ -163,17 +163,23 @@ struct BalanceSnapshot: Identifiable, Hashable {
     /// 限流周期重置时间（ISO8601）
     var nextEpochBegins: String? = nil
 
-    /// 信用型主摘要（菜单栏/总览用，如 "$12.3" / "-$0.18"）
-    var creditSummary: String? {
-        guard plan == .credit, let first = credits?.first else { return nil }
-        return formatUSD(first.amount, compact: true)
+    /// 主展示余额：优先「附赠额度」（Venice 订阅的主要消耗池，USD 余额可能为负或不变动），否则第一项（USD）
+    var primaryCredit: CreditBalance? {
+        guard plan == .credit, let list = credits, !list.isEmpty else { return nil }
+        return list.first(where: { $0.label.hasPrefix("附赠") }) ?? list[0]
     }
 
-    /// 主余额是否告急（<1 或不允许消费）
+    /// 信用型主摘要（菜单栏/总览用，如 "$77.5"）
+    var creditSummary: String? {
+        guard let primary = primaryCredit else { return nil }
+        return formatUSD(primary.amount, compact: true)
+    }
+
+    /// 主展示余额是否告急（<1 或不允许消费）
     var creditIsLow: Bool {
         guard plan == .credit else { return false }
         if canConsume == false { return true }
-        return (credits?.first?.amount ?? 1) < 1
+        return (primaryCredit?.amount ?? 1) < 1
     }
 }
 

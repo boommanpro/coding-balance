@@ -330,11 +330,16 @@ struct CreditBalanceCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                if let primary = snapshot.credits?.first {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                if let primary = snapshot.primaryCredit {
+                    // 大字只放金额，类型用小字标注，避免「附赠 $77.51」整串大号太占宽度
                     Text(formatUSD(primary.amount))
                         .font(.system(.title, design: .rounded).weight(.bold))
                         .monospacedDigit()
+                        .lineLimit(1)
+                    Text(primary.label.hasPrefix("附赠") ? "附赠额度" : "余额")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 } else {
                     Text("$ —")
                         .font(.system(.title, design: .rounded).weight(.bold))
