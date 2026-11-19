@@ -332,7 +332,7 @@ struct CreditBalanceCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 if let primary = snapshot.credits?.first {
-                    Text("$\(formatFull(primary.amount))")
+                    Text(formatUSD(primary.amount))
                         .font(.system(.title, design: .rounded).weight(.bold))
                         .monospacedDigit()
                 } else {

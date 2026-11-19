@@ -5,6 +5,12 @@ cd "$(dirname "$0")"
 
 APP_NAME="CodingBalance"
 
+# 版本号：取最近 git tag（v1.4.1 -> 1.4.1），无 tag 时回退 1.0；构建号用提交数
+APP_VERSION="$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || true)"
+[ -n "$APP_VERSION" ] || APP_VERSION="1.0"
+BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
+echo "==> 版本 $APP_VERSION ($BUILD_NUMBER)"
+
 echo "==> swift build -c release"
 swift build -c release
 
@@ -37,9 +43,9 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>__APP_VERSION__</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>__BUILD_NUMBER__</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>
@@ -49,6 +55,9 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+
+# 注入版本号（模板占位符替换）
+sed -i '' -e "s/__APP_VERSION__/$APP_VERSION/" -e "s/__BUILD_NUMBER__/$BUILD_NUMBER/" "$APP/Contents/Info.plist"
 
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 

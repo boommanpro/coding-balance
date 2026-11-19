@@ -92,7 +92,12 @@ final class AppState: NSObject, ObservableObject {
     }
 
     private func setupStatusItem() {
+        // 定宽：方舟「圆环+百分比」与 Venice「$余额」内容宽度不同，
+        // 变宽会让弹窗锚点左右移动（面板漂移），固定宽度保证锚点恒定。
+        // 注意：直接以定宽创建(withLength:)会让弹窗锚点解析异常（漂到屏幕左侧），
+        // 先按变宽创建再设 length 可规避
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.length = 80
         statusItem = item
         if let button = item.button {
             button.target = self

@@ -125,10 +125,10 @@ struct CreditBalance: Hashable, Identifiable {
     let label: String
     let amount: Double
 
-    /// 展示文本：USD 及美元计价的附赠额度带 $ 前缀，其余原样
+    /// 展示文本：USD 及美元计价的附赠额度带 $ 前缀（负数为 -$x），其余原样
     var displayText: String {
         if label == "USD" || label.hasPrefix("附赠") {
-            return "$\(formatFull(amount))"
+            return formatUSD(amount)
         }
         return formatFull(amount)
     }
@@ -163,10 +163,10 @@ struct BalanceSnapshot: Identifiable, Hashable {
     /// 限流周期重置时间（ISO8601）
     var nextEpochBegins: String? = nil
 
-    /// 信用型主摘要（菜单栏/总览用，如 "$12.3"）
+    /// 信用型主摘要（菜单栏/总览用，如 "$12.3" / "-$0.18"）
     var creditSummary: String? {
         guard plan == .credit, let first = credits?.first else { return nil }
-        return "$\(formatMoneyShort(first.amount))"
+        return formatUSD(first.amount, compact: true)
     }
 
     /// 主余额是否告急（<1 或不允许消费）
@@ -287,6 +287,12 @@ func formatMoneyShort(_ value: Double) -> String {
     if value >= 100 { return String(format: "%.0f", value) }
     if value >= 10 { return String(format: "%.1f", value) }
     return String(format: "%.2f", value)
+}
+
+/// 美元金额展示（负数为 -$0.18 形式）；compact=true 用于菜单栏等窄空间
+func formatUSD(_ value: Double, compact: Bool = false) -> String {
+    let magnitude = compact ? formatMoneyShort(abs(value)) : formatFull(abs(value))
+    return value < 0 ? "-$\(magnitude)" : "$\(magnitude)"
 }
 
 /// ISO8601 时间串解析（兼容毫秒精度），失败返回 nil
