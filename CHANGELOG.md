@@ -2,6 +2,12 @@
 
 本项目采用 [语义化版本](https://semver.org/lang/zh-CN/)，`v*` 标签触发自动构建并发布到 GitHub Releases。
 
+## v1.4.1 (2026-11-19)
+
+**修复**
+- 修复多账户切换时详情弹窗位置漂移：弹窗内容尺寸此前随账户/加载态变化（实测宽度 426↔446 跳变）导致 NSPopover 反复重锚定。现固定内容尺寸（`NSHostingController.sizingOptions = .preferredContentSize`，400×560），切换账户/刷新/加载态切换不再引起弹窗尺寸与位置变化
+- 新增调试开关 `CB_FRAME_WATCH=1`：后台记录弹窗位置变化，便于定位此类问题
+
 ## v1.4.0 (2026-10-24)
 
 **功能**

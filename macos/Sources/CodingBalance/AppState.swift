@@ -64,6 +64,27 @@ final class AppState: NSObject, ObservableObject {
                 self?.renderPopoverPreview(path: path, tab: tab)
             }
         }
+        // 调试：CB_FRAME_WATCH=1 后台持续监视弹窗位置变化（用于复现/定位弹窗漂移）
+        if env["CB_FRAME_WATCH"] == "1" {
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                var last = ""
+                let deadline = Date().addingTimeInterval(120)
+                while Date() < deadline {
+                    if let s = self?.popoverFrameString(), s != last {
+                        last = s
+                        self?.log("[探针]位置变化 \(s)")
+                    }
+                    Thread.sleep(forTimeInterval: 0.2)
+                }
+            }
+        }
+    }
+
+    /// 调试：当前弹窗的屏幕坐标描述
+    private func popoverFrameString() -> String? {
+        guard let window = popover?.contentViewController?.view.window else { return nil }
+        let f = window.frame
+        return "弹窗[x=\(Int(f.minX)) y=\(Int(f.minY)) w=\(Int(f.width)) h=\(Int(f.height))]"
     }
 
     deinit {
@@ -268,12 +289,16 @@ final class AppState: NSObject, ObservableObject {
             let pop = NSPopover()
             // 调试/截图：CB_KEEP_POPOVER=1 时保持弹窗常驻
             pop.behavior = ProcessInfo.processInfo.environment["CB_KEEP_POPOVER"] == "1" ? .applicationDefined : .transient
-            pop.contentSize = NSSize(width: 420, height: 560)
             // 调试/截图：CB_SHOW_TAB=models 时直接打开「模型」页
             let initialTab: MenuBarView.MenuTab =
                 ProcessInfo.processInfo.environment["CB_SHOW_TAB"] == "models" ? .models : .balance
-            pop.contentViewController = NSHostingController(
+            // 固定内容尺寸：SwiftUI 内容尺寸随账户/加载态变化会让弹窗反复重锚定，出现位置漂移
+            let hosting = NSHostingController(
                 rootView: MenuBarView(initialTab: initialTab).environmentObject(self))
+            hosting.sizingOptions = .preferredContentSize
+            hosting.preferredContentSize = NSSize(width: 400, height: 560)
+            pop.contentViewController = hosting
+            pop.contentSize = NSSize(width: 400, height: 560)
             popover = pop
         }
         popover?.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)

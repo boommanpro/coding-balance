@@ -48,7 +48,8 @@ struct MenuBarView: View {
             footer
         }
         .padding(14)
-        .frame(width: 400)
+        // 固定内容尺寸：账户切换/加载态变化不再引起弹窗尺寸变化与重锚定漂移
+        .frame(width: 400, height: 560)
         .onAppear {
             appState.log("弹窗打开 账户=\(appState.accounts.count) 快照=\(appState.balances.count) 菜单栏=「\(appState.menuBarText)」")
         }
