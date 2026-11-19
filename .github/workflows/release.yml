@@ -11,7 +11,7 @@ permissions:
 jobs:
   release:
     name: 构建并发布 Release
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
