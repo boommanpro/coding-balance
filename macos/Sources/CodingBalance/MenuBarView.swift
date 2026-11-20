@@ -64,7 +64,6 @@ struct MenuBarView: View {
             if let active = appState.activeAccount {
                 accountDetail(active)
             }
-            if appState.accounts.count > 1 { accountOverview }
         }
     }
 
@@ -215,46 +214,6 @@ struct MenuBarView: View {
                 Text("暂无额度数据")
                     .font(.caption)
                     .foregroundColor(.secondary)
-            }
-        }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color(nsColor: .controlBackgroundColor)))
-    }
-
-    // MARK: 多账户总览
-
-    private var accountOverview: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("全部账户")
-                .font(.caption)
-                .foregroundColor(.secondary)
-            ForEach(appState.accounts) { account in
-                Button {
-                    appState.setActiveAccount(account)
-                } label: {
-                    HStack {
-                        Image(systemName: appState.activeAccountID == account.id ? "checkmark.circle.fill" : "circle")
-                            .foregroundColor(appState.activeAccountID == account.id ? .accentColor : .secondary)
-                        Text(account.shortLabel)
-                            .font(.callout)
-                        Spacer()
-                        if let snap = appState.balances[account.id], let five = snap.fiveHour {
-                            Text("5h 剩 \(Int(five.remainingPercent.rounded()))%")
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundColor(five.remainingPercent < 20 ? .red : .primary)
-                        } else if let snap = appState.balances[account.id], let summary = snap.creditSummary {
-                            Text(summary)
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundColor(snap.creditIsLow ? .red : .primary)
-                        } else if appState.balances[account.id] != nil {
-                            Text("—").font(.caption).foregroundColor(.secondary)
-                        } else {
-                            Text("加载中…").font(.caption).foregroundColor(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-                .buttonStyle(.plain)
             }
         }
         .padding(14)
