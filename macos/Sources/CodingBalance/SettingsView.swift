@@ -44,17 +44,31 @@ struct SettingsView: View {
                 List {
                     ForEach(appState.accounts) { account in
                         HStack(spacing: 10) {
-                            Image(systemName: "person.crop.circle.fill")
-                                .foregroundColor(.secondary)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(account.name.isEmpty ? account.provider.displayName : account.name)
-                                    .font(.body.weight(.medium))
-                                Text("\(account.provider.displayName) · \(account.credentialPreview)")
-                                    .font(.caption)
+                            // 图标 + 账户信息；已禁用时置灰
+                            HStack(spacing: 10) {
+                                Image(systemName: "person.crop.circle.fill")
                                     .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: 6) {
+                                        Text(account.name.isEmpty ? account.provider.displayName : account.name)
+                                            .font(.body.weight(.medium))
+                                        if account.isDisabled {
+                                            Text("已禁用")
+                                                .font(.system(size: 9, weight: .semibold))
+                                                .padding(.horizontal, 4)
+                                                .padding(.vertical, 1)
+                                                .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                    Text("\(account.provider.displayName) · \(account.credentialPreview)")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
                             }
+                            .opacity(account.isDisabled ? 0.45 : 1)
                             Spacer()
                             if let error = appState.errors[account.id] {
                                 Image(systemName: "exclamationmark.triangle.fill")
@@ -64,9 +78,20 @@ struct SettingsView: View {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundColor(.green)
                             }
+                            // 禁用/启用：删除的替代，保留配置、停止刷新，可随时恢复
+                            Button {
+                                appState.setDisabled(!account.isDisabled, for: account)
+                            } label: {
+                                Image(systemName: account.isDisabled ? "play.circle" : "pause.circle")
+                            }
+                            .buttonStyle(.borderless)
+                            .help(account.isDisabled ? "启用账户" : "禁用账户：停止刷新并移出账户切换，保留配置")
                         }
                         .contextMenu {
                             Button("编辑") { editor = AccountEditor(account: account) }
+                            Button(account.isDisabled ? "启用" : "禁用") {
+                                appState.setDisabled(!account.isDisabled, for: account)
+                            }
                             Button("删除", role: .destructive) { appState.deleteAccount(account) }
                         }
                     }
@@ -86,7 +111,7 @@ struct SettingsView: View {
                 .buttonStyle(.borderedProminent)
 
                 Button("刷新全部") { appState.refreshAll() }
-                    .disabled(appState.accounts.isEmpty)
+                    .disabled(appState.enabledAccounts.isEmpty)
 
                 Spacer()
 
@@ -175,9 +200,18 @@ struct AccountEditorView: View {
     @State private var accessKey: String
     @State private var secretKey: String
     @State private var apiKey: String
+    /// 账单日（每月几号刷新），0 = 未设置；仅 Venice 使用
+    @State private var billingDay: Int
     @State private var isTesting = false
     @State private var testResult: String?
     @State private var testSuccess = false
+
+    private static let dayFormatter: DateFormatter = {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "MM-dd"
+        fmt.timeZone = .current
+        return fmt
+    }()
 
     init(account: Account?, onSave: @escaping (Account, Bool) -> Void) {
         self.account = account
@@ -187,6 +221,8 @@ struct AccountEditorView: View {
         _accessKey = State(initialValue: account?.accessKey ?? "")
         _secretKey = State(initialValue: account?.secretKey ?? "")
         _apiKey = State(initialValue: account?.apiKey ?? "")
+        let storedBillingDay = account?.billingDay ?? 0
+        _billingDay = State(initialValue: (1...31).contains(storedBillingDay) ? storedBillingDay : 0)
     }
 
     private var isEditing: Bool { account != nil }
@@ -232,9 +268,22 @@ struct AccountEditorView: View {
                         .textFieldStyle(.roundedBorder)
                         .font(.system(.body, design: .monospaced))
 
-                    Text("在 venice.ai/settings/api 生成；Inference / Admin 类型均可查询余额与限流。")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    formCaption("在 venice.ai/settings/api 生成；Inference / Admin 类型均可查询余额与限流。")
+
+                    Picker("账单日", selection: $billingDay) {
+                        Text("未设置").tag(0)
+                        ForEach(1...31, id: \.self) { day in
+                            Text("每月 \(day) 日").tag(day)
+                        }
+                    }
+                    .help("附赠额度与账户订阅绑定、按月刷新，接口不返回该日期；按实际账单日填写后，余额卡显示本期周期与距刷新天数（当月天数不足时按月末计）")
+
+                    // 已选择时预览本期周期，便于确认账单日填得对不对
+                    if let cycle = previewCycle {
+                        formCaption("本期 \(Self.dayFormatter.string(from: cycle.start)) ~ \(Self.dayFormatter.string(from: cycle.lastDay)) · \(cycle.daysRemaining) 天后刷新")
+                    } else {
+                        formCaption("附赠额度每月在此日刷新，与账户订阅绑定；不确定可留空。")
+                    }
                 }
 
                 if let testResult = testResult {
@@ -290,13 +339,31 @@ struct AccountEditorView: View {
         }
     }
 
+    /// Form 内的说明行。裸 Text 在 Form 里默认不换行，过长会把表单撑得比 460 宽、
+    /// 整体左移被裁（标题缺字、右侧截断）；需先占满列宽，再按换行后的内容定高
+    private func formCaption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// 表单中已选账单日对应的本期周期（未选择时为 nil）
+    private var previewCycle: BillingCycle? {
+        billingDay > 0 ? BillingCycle.current(day: billingDay) : nil
+    }
+
     private func buildAccount() -> Account {
         Account(id: account?.id ?? UUID(),
                 name: name.trimmingCharacters(in: .whitespaces),
                 provider: provider,
                 accessKey: accessKey.trimmingCharacters(in: .whitespaces),
                 secretKey: secretKey.trimmingCharacters(in: .whitespaces),
-                apiKey: provider == .venice ? apiKey.trimmingCharacters(in: .whitespaces) : nil)
+                apiKey: provider == .venice ? apiKey.trimmingCharacters(in: .whitespaces) : nil,
+                // 禁用状态不在表单里改，原样保留；账单日仅 Venice 账户使用
+                disabled: account?.disabled,
+                billingDay: provider == .venice && billingDay > 0 ? billingDay : nil)
     }
 
     private func save() {

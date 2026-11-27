@@ -67,7 +67,7 @@ struct ModelsView: View {
                     .padding(.vertical, 10)
                 }
             } else {
-                Text("请先配置账户")
+                Text(appState.accounts.isEmpty ? "请先配置账户" : "账户均已禁用")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity)

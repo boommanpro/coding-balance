@@ -57,10 +57,11 @@ struct MenuBarView: View {
 
     @ViewBuilder
     private var balanceContent: some View {
-        if appState.accounts.isEmpty {
-            EmptyConfigView()
+        // 已禁用的账户不在此展示：全部禁用时给出空态（区别于「尚未配置」）
+        if appState.enabledAccounts.isEmpty {
+            EmptyConfigView(allDisabled: !appState.accounts.isEmpty)
         } else {
-            if appState.accounts.count > 1 { accountPicker }
+            if appState.enabledAccounts.count > 1 { accountPicker }
             if let active = appState.activeAccount {
                 accountDetail(active)
             }
@@ -97,11 +98,11 @@ struct MenuBarView: View {
             Picker("", selection: Binding(
                 get: { appState.activeAccountID },
                 set: { id in
-                    guard let id = id, let account = appState.accounts.first(where: { $0.id == id }) else { return }
+                    guard let id = id, let account = appState.enabledAccounts.first(where: { $0.id == id }) else { return }
                     appState.setActiveAccount(account)
                 }
             )) {
-                ForEach(appState.accounts) { account in
+                ForEach(appState.enabledAccounts) { account in
                     Text(account.shortLabel).tag(Optional(account.id))
                 }
             }
@@ -325,6 +326,10 @@ struct CreditBalanceCard: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
+            // 账单日为用户按账户自定义（接口不下发），未设置时不展示
+            if let cycle = account.billingCycle {
+                BillingCycleView(cycle: cycle)
+            }
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color(nsColor: .controlBackgroundColor)))
@@ -375,6 +380,39 @@ struct CreditBalanceCard: View {
     }
 }
 
+/// 月度账单周期行：本期起止 + 已过进度 + 距刷新天数（如 Venice 附赠额度按月刷新）
+struct BillingCycleView: View {
+    let cycle: BillingCycle
+
+    private static let dayFormatter: DateFormatter = {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "MM-dd"
+        fmt.timeZone = .current
+        return fmt
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text("账单周期")
+                    .font(.callout)
+                Spacer()
+                Text("\(Self.dayFormatter.string(from: cycle.start)) ~ \(Self.dayFormatter.string(from: cycle.lastDay))")
+                    .font(.system(.callout, design: .monospaced))
+            }
+            RatioBar(fraction: CGFloat(cycle.elapsedFraction), color: .accentColor)
+            HStack {
+                Text("本期已过 \(Int((cycle.elapsedFraction * 100).rounded()))%")
+                Spacer()
+                Text("还有 \(cycle.daysRemaining) 天刷新")
+            }
+            .font(.caption2)
+            .foregroundColor(.secondary)
+        }
+        .padding(.top, 4)
+    }
+}
+
 // MARK: - 额度窗口行
 
 struct WindowRowView: View {
@@ -395,15 +433,7 @@ struct WindowRowView: View {
                         .font(.system(.caption, design: .monospaced))
                 }
             }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.gray.opacity(0.2))
-                    Capsule()
-                        .fill(ratioColor(window.ratio))
-                        .frame(width: max(0, geo.size.width * CGFloat(min(max(window.ratio, 0), 1))))
-                }
-            }
-            .frame(height: 6)
+            RatioBar(fraction: CGFloat(window.ratio), color: ratioColor(window.ratio))
             HStack {
                 Text("下次重置 \(formatTime(window.resetTime))")
                     .font(.caption2)
@@ -422,23 +452,44 @@ struct WindowRowView: View {
     }
 }
 
+/// 细比例条（fraction 会被夹到 0...1），额度窗口 / 账单周期共用
+struct RatioBar: View {
+    let fraction: CGFloat
+    let color: Color
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.gray.opacity(0.2))
+                Capsule()
+                    .fill(color)
+                    .frame(width: max(0, geo.size.width * CGFloat(min(max(fraction, 0), 1))))
+            }
+        }
+        .frame(height: 6)
+    }
+}
+
 // MARK: - 未配置状态
 
 struct EmptyConfigView: View {
     @EnvironmentObject var appState: AppState
+    /// true：已有账户但全部被禁用（文案与入口不同）
+    var allDisabled = false
 
     var body: some View {
         VStack(spacing: 10) {
-            Image(systemName: "gearshape")
+            Image(systemName: allDisabled ? "pause.circle" : "gearshape")
                 .font(.system(size: 30))
                 .foregroundColor(.secondary)
-            Text("尚未配置任何账户")
+            Text(allDisabled ? "所有账户均已禁用" : "尚未配置任何账户")
                 .font(.headline)
-            Text("添加火山方舟或 Venice 账户后，\n菜单栏将实时显示剩余额度与余额。")
+            Text(allDisabled ? "在「管理账户」中启用账户后，\n菜单栏将恢复显示额度与余额。"
+                             : "添加火山方舟或 Venice 账户后，\n菜单栏将实时显示剩余额度与余额。")
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-            Button("添加账户…") {
+            Button(allDisabled ? "管理账户…" : "添加账户…") {
                 appState.openSettings()
             }
             .buttonStyle(.borderedProminent)
