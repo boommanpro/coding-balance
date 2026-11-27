@@ -35,6 +35,19 @@ struct Account: Codable, Identifiable, Hashable {
     var secretKey: String
     /// 单 Key 凭据平台（如 Venice 的 Bearer API Key）；方舟不使用
     var apiKey: String? = nil
+    /// 是否已禁用：保留配置但不再刷新、不出现在「当前使用账户」切换中；旧数据缺省为未禁用
+    var disabled: Bool? = nil
+    /// 账单日（每月几号，1–31）。Venice 附赠额度与账户订阅绑定、按月刷新，但接口不下发该日期，
+    /// 由用户按账户自定义；方舟各周期重置时间由接口下发，不使用
+    var billingDay: Int? = nil
+
+    var isDisabled: Bool { disabled == true }
+
+    /// 当前所在的月度账单周期（未设置账单日时为 nil）
+    var billingCycle: BillingCycle? {
+        guard let day = billingDay else { return nil }
+        return BillingCycle.current(day: day)
+    }
 
     /// 菜单栏/弹窗里展示的短名称
     var shortLabel: String {
@@ -53,6 +66,53 @@ struct Account: Codable, Identifiable, Hashable {
         case .ark: return abbreviate(accessKey)
         case .venice: return abbreviate(apiKey ?? "")
         }
+    }
+}
+
+// MARK: - 月度账单周期
+
+/// 按月刷新的账单周期（如 Venice 附赠额度：以账户订阅日为账单日每月刷新）。
+/// 平台接口不下发账单日，故由用户按账户自定义，本地按自然月推算。
+struct BillingCycle: Equatable {
+    /// 本期首日 0 点
+    let start: Date
+    /// 下期首日 0 点（即本期结束）
+    let end: Date
+    let totalDays: Int
+    /// 距下期刷新的自然日数（刷新当天已计入下一期，故至少为 1）
+    let daysRemaining: Int
+
+    /// 本期已过天数
+    var daysElapsed: Int { max(0, totalDays - daysRemaining) }
+    /// 本期已过比例（0..<1），用于进度条
+    var elapsedFraction: Double { totalDays > 0 ? Double(daysElapsed) / Double(totalDays) : 0 }
+    /// 本期最后一天
+    var lastDay: Date { Calendar.current.date(byAdding: .day, value: -1, to: end) ?? end }
+
+    /// `now` 所在的账单周期：每月 `day` 日（calendar 时区 0 点）刷新；
+    /// 当月天数不足时（如 31 日遇 2 月 / 30 天的月份）按当月最后一天计
+    static func current(day: Int, at now: Date = Date(), calendar: Calendar = .current) -> BillingCycle? {
+        guard (1...31).contains(day) else { return nil }
+        let comps = calendar.dateComponents([.year, .month], from: now)
+        guard let monthStart = calendar.date(from: DateComponents(year: comps.year, month: comps.month, day: 1)),
+              let prevMonth = calendar.date(byAdding: .month, value: -1, to: monthStart),
+              let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart) else {
+            return nil
+        }
+        /// `monthStart` 所在月份的账单日 0 点
+        func billingDate(_ monthStart: Date) -> Date? {
+            let length = calendar.range(of: .day, in: .month, for: monthStart)?.count ?? 0
+            return calendar.date(byAdding: .day, value: min(day, length) - 1, to: monthStart)
+        }
+        guard let thisMonth = billingDate(monthStart), let next = billingDate(nextMonth),
+              let prev = billingDate(prevMonth) else { return nil }
+        // 本月账单日已到则本期从本月起算，否则仍在上期（上月账单日 ~ 本月账单日）
+        let start = thisMonth <= now ? thisMonth : prev
+        let end = thisMonth <= now ? next : thisMonth
+        return BillingCycle(start: start,
+                            end: end,
+                            totalDays: calendar.dateComponents([.day], from: start, to: end).day ?? 0,
+                            daysRemaining: calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: end).day ?? 0)
     }
 }
 

@@ -133,7 +133,10 @@ final class AppState: NSObject, ObservableObject {
                 button.title = summary
                 button.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
                 let what = primary.label.hasPrefix("附赠") ? "附赠额度" : "余额"
-                button.toolTip = "\(active.shortLabel) · \(what) \(formatUSD(primary.amount))\(snap.canConsume == false ? " · 不可消费" : "") · 左键详情 右键菜单"
+                var tip = "\(active.shortLabel) · \(what) \(formatUSD(primary.amount))\(snap.canConsume == false ? " · 不可消费" : "")"
+                // 设置了账单日的账户附上距刷新天数
+                if let cycle = active.billingCycle { tip += " · \(cycle.daysRemaining) 天后刷新" }
+                button.toolTip = tip + " · 左键详情 右键菜单"
             } else {
                 button.image = makeLogoImage(size: 18)
                 button.title = "—"
@@ -146,7 +149,7 @@ final class AppState: NSObject, ObservableObject {
         } else {
             button.image = makeLogoImage(size: 18)
             button.title = ""
-            button.toolTip = "Coding Balance · 点击配置账户"
+            button.toolTip = accounts.isEmpty ? "Coding Balance · 点击配置账户" : "Coding Balance · 账户均已禁用"
         }
     }
 
@@ -336,21 +339,31 @@ final class AppState: NSObject, ObservableObject {
 
     // MARK: 当前使用账户
 
+    /// 未禁用的账户：参与定时刷新与「当前使用账户」切换；已禁用的仅保留配置
+    var enabledAccounts: [Account] { accounts.filter { !$0.isDisabled } }
+
     var activeAccount: Account? {
         guard let id = activeAccountID else { return nil }
-        return accounts.first { $0.id == id }
+        return enabledAccounts.first { $0.id == id }
     }
 
     private func restoreActiveAccount() {
         if let raw = UserDefaults.standard.string(forKey: activeKey),
-           let id = UUID(uuidString: raw), accounts.contains(where: { $0.id == id }) {
+           let id = UUID(uuidString: raw) {
             activeAccountID = id
-        } else {
-            activeAccountID = accounts.first?.id
         }
+        ensureActiveAccount()
+    }
+
+    /// 「当前使用账户」不可用时（为空 / 已删除 / 已禁用）回落到第一个未禁用账户并持久化
+    private func ensureActiveAccount() {
+        if let id = activeAccountID, enabledAccounts.contains(where: { $0.id == id }) { return }
+        activeAccountID = enabledAccounts.first?.id
+        UserDefaults.standard.set(activeAccountID?.uuidString ?? "", forKey: activeKey)
     }
 
     func setActiveAccount(_ account: Account) {
+        guard !account.isDisabled else { return }
         activeAccountID = account.id
         UserDefaults.standard.set(account.id.uuidString, forKey: activeKey)
         Task { await refresh(account: account) }   // 切过去立刻刷新一次
@@ -376,11 +389,13 @@ final class AppState: NSObject, ObservableObject {
         return parts.joined(separator: " ")
     }
 
-    var hasConfiguredAccounts: Bool { !accounts.isEmpty }
+    /// 是否有参与刷新的账户（全部禁用时视为未配置，菜单栏仅显示图标）
+    var hasConfiguredAccounts: Bool { !enabledAccounts.isEmpty }
 
     // MARK: 刷新
 
-    /// 定时调度：30s tick，逐账户检查是否到达其平台的刷新间隔（方舟默认 60s、Venice 默认 20min）
+    /// 定时调度：30s tick，逐账户检查是否到达其平台的刷新间隔（方舟默认 60s、Venice 默认 20min）；
+    /// 已禁用的账户不参与
     func startAutoRefresh() {
         refreshTimer?.invalidate()
         let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
@@ -394,25 +409,26 @@ final class AppState: NSObject, ObservableObject {
 
     /// 刷新已到期的账户（手动刷新不受此节流限制）
     private func refreshDueAccounts() {
-        guard !accounts.isEmpty, !isRefreshing else { return }
+        let enabled = enabledAccounts
+        guard !enabled.isEmpty, !isRefreshing else { return }
         let now = Date()
-        let due = accounts.filter { account in
+        let due = enabled.filter { account in
             guard let last = lastRefreshedAt[account.id] else { return true }
             return now.timeIntervalSince(last) >= Self.refreshInterval(for: account.provider)
         }
         guard !due.isEmpty else { return }
-        log("定时调度：\(due.count)/\(accounts.count) 个账户到期刷新")
+        log("定时调度：\(due.count)/\(enabled.count) 个账户到期刷新")
         Task { await refreshAccounts(due) }
     }
 
     func refreshAll() {
-        guard !accounts.isEmpty, !isRefreshing else { return }
+        guard !enabledAccounts.isEmpty, !isRefreshing else { return }
         Task { await refreshAllAwait() }
     }
 
     /// 等待全部账户刷新完成（供下拉刷新等需要等待完成的场景）
     func refreshAllAwait() async {
-        await refreshAccounts(accounts)
+        await refreshAccounts(enabledAccounts)
     }
 
     private func refreshAccounts(_ targets: [Account]) async {
@@ -430,11 +446,19 @@ final class AppState: NSObject, ObservableObject {
         log("刷新完成 账户=\(targets.count) 快照=\(balances.count) 菜单栏=「\(menuBarText)」")
     }
 
+    /// 账户是否仍可刷新（未被删除且未禁用）
+    private func isRefreshable(_ id: UUID) -> Bool {
+        accounts.contains { $0.id == id && !$0.isDisabled }
+    }
+
     func refresh(account: Account) async {
+        guard isRefreshable(account.id) else { return }
         lastRefreshedAt[account.id] = Date()
         let provider = makeProvider(account.provider)
         do {
             let snapshot = try await provider.fetchBalance(account: account)
+            // 请求期间账户可能被禁用/删除：丢弃结果，不再回填缓存
+            guard isRefreshable(account.id) else { return }
             balances[account.id] = snapshot
             errors[account.id] = nil
             if snapshot.plan == .credit {
@@ -446,6 +470,7 @@ final class AppState: NSObject, ObservableObject {
                     + "月=\(snapshot.monthly?.usedPercent ?? -1)")
             }
         } catch {
+            guard isRefreshable(account.id) else { return }
             balances[account.id] = nil
             errors[account.id] = (error as? ProviderError)?.errorDescription ?? error.localizedDescription
             log("刷新失败 \(account.shortLabel): \(errors[account.id] ?? error.localizedDescription)")
@@ -455,6 +480,7 @@ final class AppState: NSObject, ObservableObject {
 
     /// 拉取可用模型 + 限流（QPS）+ 价格（与余额刷新一起，60s 一次）
     func refreshModels(account: Account, provider: Provider? = nil) async {
+        guard isRefreshable(account.id) else { return }
         let provider = provider ?? makeProvider(account.provider)
         do {
             let models = try await provider.fetchModels(account: account)
@@ -510,23 +536,48 @@ final class AppState: NSObject, ObservableObject {
             accounts.append(account)
         }
         AccountStore.shared.save(accounts)
+        if account.isDisabled {
+            // 保存为禁用态：清掉缓存，「当前使用账户」必要时回落
+            purgeCache(for: account.id)
+            ensureActiveAccount()
+            return
+        }
         if activeAccountID == nil {
             activeAccountID = account.id
         }
         await refresh(account: account)
     }
 
+    /// 禁用/启用账户。禁用后保留凭据配置，但停止刷新并从「当前使用账户」切换中移除，
+    /// 可随时恢复；作为删除的替代，适合临时下线某个账户
+    func setDisabled(_ disabled: Bool, for account: Account) {
+        guard let idx = accounts.firstIndex(where: { $0.id == account.id }),
+              accounts[idx].isDisabled != disabled else { return }
+        accounts[idx].disabled = disabled
+        AccountStore.shared.save(accounts)
+        // 当前使用账户不可用时（刚被禁用，或此前全部禁用）回落/恢复为第一个未禁用账户
+        ensureActiveAccount()
+        if disabled {
+            purgeCache(for: account.id)
+        } else {
+            let enabled = accounts[idx]   // 先取值：Task 执行时下标可能已变化
+            Task { await refresh(account: enabled) }
+        }
+        log("\(disabled ? "禁用" : "启用")账户 \(account.shortLabel)")
+    }
+
+    private func purgeCache(for id: UUID) {
+        balances[id] = nil
+        errors[id] = nil
+        modelInfos[id] = nil
+        modelErrors[id] = nil
+        lastRefreshedAt[id] = nil
+    }
+
     func deleteAccount(_ account: Account) {
         accounts.removeAll { $0.id == account.id }
-        balances[account.id] = nil
-        errors[account.id] = nil
-        modelInfos[account.id] = nil
-        modelErrors[account.id] = nil
-        lastRefreshedAt[account.id] = nil
-        if activeAccountID == account.id {
-            activeAccountID = accounts.first?.id
-            UserDefaults.standard.set(activeAccountID?.uuidString ?? "", forKey: activeKey)
-        }
+        purgeCache(for: account.id)
+        ensureActiveAccount()
         AccountStore.shared.save(accounts)
     }
 
